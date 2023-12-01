@@ -1,0 +1,352 @@
+﻿# Blocks-15.1.0.txt
+# 日期：2023-07-28, 15:47:20 GMT
+# © 2023 Unicode®, Inc.
+# 使用条款详见 https://www.unicode.org/terms_of_use.html
+#
+# Unicode Character Database
+# 相关文档详见 https://www.unicode.org/reports/tr44/
+#
+# 格式:
+# 始码..终码; 始码、译名(|例字)|区段名
+
+# ================================================
+
+# 注意：区段(Block)名对比时，忽略大小写、空格、连字符和下划线。例如，"Latin Extended-A"等价于"latin extended a"。
+# 	关于属性值对比，详见 UAX #44: https://www.unicode.org/reports/tr44/
+#
+#  所有区段起始值为 (cp MOD 16) = 0，结束值为 (cp MOD 16) = 15。换言之，区段始码末尾16进制数为...0，终码则为...F。这确保区段总被整列地分配且码表不被中断。
+#
+#  所有未明列为区段的码位(code point)，其值皆为 No_Block。
+
+# Property:	Block
+#
+# @missing: 0000..10FFFF; No_Block
+
+0000..007F; 基本拉丁文字|Basic Latin
+0080..00FF; 拉丁文字补充|Latin-1 Supplement
+0100..017F; 拉丁扩充甲|Latin Extended-A
+0180..024F; 拉丁扩充乙|Latin Extended-B
+0250..02AF; 国际音标扩充|IPA Extensions
+02B0..02FF; 有距修饰字|Spacing Modifier Letters
+0300..036F; 结合变音标记|Combining Diacritical Marks
+0370..03FF; 希腊及科普特|Greek and Coptic
+0400..04FF; 西里尔|Cyrillic
+0500..052F; 西里尔补充|Cyrillic Supplement
+0530..058F; 亚美尼亚|Armenian
+0590..05FF; 希伯来|Hebrew
+0600..06FF; 阿拉伯|Arabic
+0700..074F; 叙利亚|Syriac
+0750..077F; 阿拉伯补充|Arabic Supplement
+0780..07BF; 塔纳|Thaana
+07C0..07FF; 恩科(西非书面)|N’Ko
+0800..083F; 撒马利亚|Samaritan
+0840..085F; 曼德恩|Mandaic
+0860..086F; 叙利亚补充|Syriac Supplement
+0870..089F; 阿拉伯扩充乙|Arabic Extended-B
+08A0..08FF; 阿拉伯扩充甲|Arabic Extended-A
+0900..097F; 天城体|Devanagari
+0980..09FF; 孟加拉|Bengali
+0A00..0A7F; 果鲁穆奇|Gurmukhi
+0A80..0AFF; 古吉拉特|Gujarati
+0B00..0B7F; 奥里亚|Oriya
+0B80..0BFF; 泰米尔|Tamil
+0C00..0C7F; 泰卢固|Telugu
+0C80..0CFF; 卡纳达|Kannada
+0D00..0D7F; 马拉雅拉姆|Malayalam
+0D80..0DFF; 僧伽罗|Sinhala
+0E00..0E7F; 泰文|Thai
+0E80..0EFF; 老挝|Lao
+0F00..0FFF; 藏文|Tibetan
+1000..109F; 缅文|Myanmar
+10A0..10FF; 格鲁吉亚|Georgian
+1100..11FF; 谚文字母|Hangul Jamo
+1200..137F; 埃塞|Ethiopic
+1380..139F; 埃塞补充|Ethiopic Supplement
+13A0..13FF; 切罗基|Cherokee
+1400..167F; 统一加拿大土著音节|Unified Canadian Aboriginal Syllabics
+1680..169F; 欧甘|Ogham
+16A0..16FF; 卢恩|Runic
+1700..171F; 他加禄|Tagalog
+1720..173F; 哈努努奥|Hanunoo
+1740..175F; 布希德|Buhid
+1760..177F; 蒂亚格班瓦|Tagbanwa
+1780..17FF; 高棉|Khmer
+1800..18AF; 蒙文|Mongolian
+18B0..18FF; 统一加拿大土著音节扩充|Unified Canadian Aboriginal Syllabics Extended
+1900..194F; 林布|Limbu
+1950..197F; 傣?|Tai Le
+1980..19DF; 新傣仂|New Tai Lue
+19E0..19FF; 高棉符号|Khmer Symbols
+1A00..1A1F; 布吉|Buginese
+1A20..1AAF; 傣昙|Tai Tham
+1AB0..1AFF; 结合变音标记扩充|Combining Diacritical Marks Extended
+1B00..1B7F; 巴厘|Balinese
+1B80..1BBF; 巽他|Sundanese
+1BC0..1BFF; 巴塔克|Batak
+1C00..1C4F; 雷布查|Lepcha
+1C50..1C7F; 奥尔奇基|Ol Chiki
+1C80..1C8F; 西里尔扩充丙|Cyrillic Extended-C
+1C90..1CBF; 格鲁吉亚扩充|Georgian Extended
+1CC0..1CCF; 巽他补充|Sundanese Supplement
+1CD0..1CFF; 吠陀扩充|Vedic Extensions
+1D00..1D7F; 音标扩充|Phonetic Extensions
+1D80..1DBF; 音标扩充增补|Phonetic Extensions Supplement
+1DC0..1DFF; 结合变音标记补充|Combining Diacritical Marks Supplement
+1E00..1EFF; 拉丁扩充追加|Latin Extended Additional
+1F00..1FFF; 希腊扩充|Greek Extended
+2000..206F; 通用标点|General Punctuation
+2070..209F; 上标及下标|Superscripts and Subscripts
+20A0..20CF; 货币符号|Currency Symbols
+20D0..20FF; 结合变音记号|Combining Diacritical Marks for Symbols
+2100..214F; 类字符号|Letterlike Symbols
+2150..218F; 数字形式|Number Forms
+2190..21FF; 箭头|Arrows
+2200..22FF; 数学运算符|Mathematical Operators
+2300..23FF; 各式技术符|Miscellaneous Technical
+2400..243F; 控制图符|Control Pictures
+2440..245F; 光学字符识别|Optical Character Recognition
+2460..24FF; 附围字母数字|Enclosed Alphanumerics
+2500..257F; 制表符|Box Drawing
+2580..259F; 方块构素|Block Elements
+25A0..25FF; 几何形状|Geometric Shapes
+2600..26FF; 各式符号|Miscellaneous Symbols
+2700..27BF; 什锦|Dingbats
+27C0..27EF; 各式数学符号甲|Miscellaneous Mathematical Symbols-A
+27F0..27FF; 增补箭头甲|Supplemental Arrows-A
+2800..28FF; 布莱叶盲文点字|Braille Patterns
+2900..297F; 增补箭头乙|Supplemental Arrows-B
+2980..29FF; 各式数学符号乙|Miscellaneous Mathematical Symbols-B
+2A00..2AFF; 增补数学运算符|Supplemental Mathematical Operators
+2B00..2BFF; 各式符号及箭头|Miscellaneous Symbols and Arrows
+2C00..2C5F; 格拉哥里|Glagolitic
+2C60..2C7F; 拉丁扩充丙|Latin Extended-C
+2C80..2CFF; 科普特|Coptic
+2D00..2D2F; 格鲁吉亚补充|Georgian Supplement
+2D30..2D7F; 提非纳|Tifinagh
+2D80..2DDF; 埃塞扩充|Ethiopic Extended
+2DE0..2DFF; 西里尔扩充甲|Cyrillic Extended-A
+2E00..2E7F; 增补标点|Supplemental Punctuation
+2E80..2EFF; 汉字部首补充|CJK Radicals Supplement
+2F00..2FDF; 康熙部首|Kangxi Radicals
+2FF0..2FFF; 表意描述字符|Ideographic Description Characters
+3000..303F; 中日韩符号及标点|CJK Symbols and Punctuation
+3040..309F; 平假名|Hiragana
+30A0..30FF; 片假名|Katakana
+3100..312F; 注音|Bopomofo
+3130..318F; 谚文兼容字母|Hangul Compatibility Jamo
+3190..319F; 汉文训读|Kanbun
+31A0..31BF; 注音扩充|Bopomofo Extended
+31C0..31EF; 汉字笔画|CJK Strokes
+31F0..31FF; 片假名音标扩充|Katakana Phonetic Extensions
+3200..32FF; 附围中日韩字母及月份|Enclosed CJK Letters and Months
+3300..33FF; 中日韩兼容|CJK Compatibility
+3400..4DBF; 汉字统一表意扩充甲|CJK Unified Ideographs Extension A
+4DC0..4DFF; 易经六十四卦|Yijing Hexagram Symbols
+4E00..9FFF; 汉字统一表意|CJK Unified Ideographs
+A000..A48F; 彝文音节|Yi Syllables
+A490..A4CF; 彝文部首|Yi Radicals
+A4D0..A4FF; 傈僳(老)|Lisu
+A500..A63F; 瓦伊|Vai
+A640..A69F; 西里尔扩充乙|Cyrillic Extended-B
+A6A0..A6FF; 巴默姆|Bamum
+A700..A71F; 声调修饰字|Modifier Tone Letters
+A720..A7FF; 拉丁扩充丁|Latin Extended-D
+A800..A82F; 西洛蒂城体|Syloti Nagri
+A830..A83F; 通用印度数字形式|Common Indic Number Forms
+A840..A87F; 八思巴|Phags-pa
+A880..A8DF; 索拉什特拉|Saurashtra
+A8E0..A8FF; 天城体扩充|Devanagari Extended
+A900..A92F; 克耶利|Kayah Li
+A930..A95F; 雷姜|Rejang
+A960..A97F; 谚文字母扩充甲|Hangul Jamo Extended-A
+A980..A9DF; 爪哇|Javanese
+A9E0..A9FF; 缅文扩充乙|Myanmar Extended-B
+AA00..AA5F; 占文|Cham
+AA60..AA7F; 缅文扩充甲|Myanmar Extended-A
+AA80..AADF; 傣越|Tai Viet
+AAE0..AAFF; 米代文扩充|Meetei Mayek Extensions
+AB00..AB2F; 埃塞扩充甲|Ethiopic Extended-A
+AB30..AB6F; 拉丁扩充戊|Latin Extended-E
+AB70..ABBF; 切罗基补充|Cherokee Supplement
+ABC0..ABFF; 米代文|Meetei Mayek
+AC00..D7AF; 谚文音节|Hangul Syllables
+D7B0..D7FF; 谚文字母扩充乙|Hangul Jamo Extended-B
+D800..DB7F; 高位替代|High Surrogates
+DB80..DBFF; 高位私用替代|High Private Use Surrogates
+DC00..DFFF; 低位替代|Low Surrogates
+E000..F8FF; 私用区|Private Use Area
+F900..FAFF; 汉字兼容表意|CJK Compatibility Ideographs
+FB00..FB4F; 字母表现形式|Alphabetic Presentation Forms
+FB50..FDFF; 阿拉伯表现形式甲|Arabic Presentation Forms-A
+FE00..FE0F; 变体选择符|Variation Selectors
+FE10..FE1F; 竖排形式|Vertical Forms
+FE20..FE2F; 结合半边标记|Combining Half Marks
+FE30..FE4F; 中日韩兼容形式|CJK Compatibility Forms
+FE50..FE6F; 小型形式变体|Small Form Variants
+FE70..FEFF; 阿拉伯表现形式乙|Arabic Presentation Forms-B
+FF00..FFEF; 半角及全角|Halfwidth and Fullwidth Forms
+FFF0..FFFF; 特殊|Specials
+10000..1007F; 线形乙音节|Linear B Syllabary
+10080..100FF; 线形乙表意|Linear B Ideograms
+10100..1013F; 爱琴数字|Aegean Numbers
+10140..1018F; 古希腊数字|Ancient Greek Numbers
+10190..101CF; 古代符号|Ancient Symbols
+101D0..101FF; 费斯托斯圆盘|Phaistos Disc
+10280..1029F; 吕基亚|Lycian
+102A0..102DF; 加里亚|Carian
+102E0..102FF; 科普特闰余数字|Coptic Epact Numbers
+10300..1032F; 古意大利|Old Italic
+10330..1034F; 哥特|Gothic
+10350..1037F; 古彼尔姆|Old Permic
+10380..1039F; 乌加里特|Ugaritic
+103A0..103DF; 古波斯|Old Persian
+10400..1044F; 德撒律|Deseret
+10450..1047F; 萧伯纳|Shavian
+10480..104AF; 伊斯马尼亚|Osmanya
+104B0..104FF; 奥色治|Osage
+10500..1052F; 爱尔巴桑|Elbasan
+10530..1056F; 高加索阿尔巴尼亚|Caucasian Albanian
+10570..105BF; 维斯库奇|Vithkuqi
+10600..1077F; 线形文字甲|Linear A
+10780..107BF; 拉丁扩充己|Latin Extended-F
+10800..1083F; 塞浦路斯音节|Cypriot Syllabary
+10840..1085F; 帝国阿拉姆|Imperial Aramaic
+10860..1087F; 巴尔米拉|Palmyrene
+10880..108AF; 奈伯特|Nabataean
+108E0..108FF; 哈特拉|Hatran
+10900..1091F; 腓尼基|Phoenician
+10920..1093F; 吕底亚|Lydian
+10980..1099F; 麦罗埃圣书体|Meroitic Hieroglyphs
+109A0..109FF; 麦罗埃草书体|Meroitic Cursive
+10A00..10A5F; 佉卢|Kharoshthi
+10A60..10A7F; 古南阿拉比亚|Old South Arabian
+10A80..10A9F; 古北阿拉比亚|Old North Arabian
+10AC0..10AFF; 摩尼|Manichaean
+10B00..10B3F; 阿维斯塔|Avestan
+10B40..10B5F; 碑铭体帕提亚|Inscriptional Parthian
+10B60..10B7F; 碑铭体巴列维|Inscriptional Pahlavi
+10B80..10BAF; 诗篇体巴列维|Psalter Pahlavi
+10C00..10C4F; 突厥|Old Turkic
+10C80..10CFF; 古匈牙利|Old Hungarian
+10D00..10D3F; 哈尼菲罗兴亚|Hanifi Rohingya
+10E60..10E7F; 鲁米数字符号|Rumi Numeral Symbols
+10E80..10EBF; 耶西迪|Yezidi
+10EC0..10EFF; 阿拉伯扩充丙|Arabic Extended-C
+10F00..10F2F; 古粟特|Old Sogdian
+10F30..10F6F; 粟特|Sogdian
+10F70..10FAF; 回鹘|Old Uyghur
+10FB0..10FDF; 花剌子模|Chorasmian
+10FE0..10FFF; 以利买|Elymaic
+11000..1107F; 婆罗米|Brahmi
+11080..110CF; 开梯|Kaithi
+110D0..110FF; 索拉索姆彭|Sora Sompeng
+11100..1114F; 查克马|Chakma
+11150..1117F; 默哈杰内|Mahajani
+11180..111DF; 沙勒德|Sharada
+111E0..111FF; 僧伽罗古数字|Sinhala Archaic Numbers
+11200..1124F; 科杰基|Khojki
+11280..112AF; 木尔坦|Multani
+112B0..112FF; 库达本德|Khudawadi
+11300..1137F; 格兰他|Grantha
+11400..1147F; 内瓦|Newa
+11480..114DF; 蒂勒胡塔|Tirhuta
+11580..115FF; 悉昙|Siddham
+11600..1165F; 莫迪|Modi
+11660..1167F; 蒙文补充|Mongolian Supplement
+11680..116CF; 塔克里|Takri
+11700..1174F; 阿含|Ahom
+11800..1184F; 道格拉|Dogra
+118A0..118FF; 瓦朗奇蒂|Warang Citi
+11900..1195F; 迪维希阿库鲁|Dives Akuru
+119A0..119FF; 嫩迪城体|Nandinagari
+11A00..11A4F; 札那巴札尔方字|Zanabazar Square
+11A50..11AAF; 索永布|Soyombo
+11AB0..11ABF; 统一加拿大土著音节扩充甲|Unified Canadian Aboriginal Syllabics Extended-A
+11AC0..11AFF; 包钦豪|Pau Cin Hau
+11B00..11B5F; 天城体扩充甲|Devanagari Extended-A
+11C00..11C6F; 比克舒基|Bhaiksuki
+11C70..11CBF; 玛尔钦体|Marchen
+11D00..11D5F; 马萨拉姆贡德|Masaram Gondi
+11D60..11DAF; 贡贾尔贡德|Gunjala Gondi
+11EE0..11EFF; 望加锡|Makasar
+11F00..11F5F; 克维|Kawi
+11FB0..11FBF; 傈僳补充|Lisu Supplement
+11FC0..11FFF; 泰米尔补充|Tamil Supplement
+12000..123FF; 楔形文字|Cuneiform
+12400..1247F; 楔形数字及标点|Cuneiform Numbers and Punctuation
+12480..1254F; 早王朝楔形文字|Early Dynastic Cuneiform
+12F90..12FFF; 塞浦路斯-米诺斯|Cypro-Minoan
+13000..1342F; 埃及圣书体|Egyptian Hieroglyphs
+13430..1345F; 埃及圣书体格式控制符|Egyptian Hieroglyph Format Controls
+14400..1467F; 安纳托利亚意音文字|Anatolian Hieroglyphs
+16800..16A3F; 巴默姆补充|Bamum Supplement
+16A40..16A6F; 姆鲁|Mro
+16A70..16ACF; 通萨|Tangsa
+16AD0..16AFF; 巴索奥瓦|Bassa Vah
+16B00..16B8F; 帕皓苗|Pahawh Hmong
+16E40..16E9F; 梅代法伊德林|Medefaidrin
+16F00..16F9F; 苗(老)|Miao
+16FE0..16FFF; 表意符号及标点|Ideographic Symbols and Punctuation
+17000..187FF; 西夏|Tangut
+18800..18AFF; 西夏偏旁|Tangut Components
+18B00..18CFF; 契丹小字|Khitan Small Script
+18D00..18D7F; 西夏补充|Tangut Supplement
+1AFF0..1AFFF; 假名扩充乙|Kana Extended-B
+1B000..1B0FF; 假名补充|Kana Supplement
+1B100..1B12F; 假名扩充甲|Kana Extended-A
+1B130..1B16F; 小型假名扩充|Small Kana Extension
+1B170..1B2FF; 女书|Nüshu
+1BC00..1BC9F; 杜普雷速记|Duployan
+1BCA0..1BCAF; 速记格式控制符|Shorthand Format Controls
+1CF00..1CFCF; 兹纳缅内音符|Znamenny Musical Notation
+1D000..1D0FF; 拜占庭乐符|Byzantine Musical Symbols
+1D100..1D1FF; 乐符|Musical Symbols
+1D200..1D24F; 古希腊音符|Ancient Greek Musical Notation
+1D2C0..1D2DF; 卡克托维克数字|Kaktovik Numerals
+1D2E0..1D2FF; 玛雅数字|Mayan Numerals
+1D300..1D35F; 太玄经卦爻|Tai Xuan Jing Symbols
+1D360..1D37F; 算筹|Counting Rod Numerals
+1D400..1D7FF; 数学字母数字符号|Mathematical Alphanumeric Symbols
+1D800..1DAAF; 萨顿手语|Sutton SignWriting
+1DF00..1DFFF; 拉丁扩充庚|Latin Extended-G
+1E000..1E02F; 格拉哥里补充|Glagolitic Supplement
+1E030..1E08F; 西里尔扩充丁|Cyrillic Extended-D
+1E100..1E14F; 苗(创世)|Nyiakeng Puachue Hmong
+1E290..1E2BF; 托托|Toto
+1E2C0..1E2FF; 万乔|Wancho
+1E4D0..1E4FF; 纳格蒙达里|Nag Mundari
+1E7E0..1E7FF; 埃塞扩充乙|Ethiopic Extended-B
+1E800..1E8DF; 门迪基卡奎|Mende Kikakui
+1E900..1E95F; 阿德拉姆|Adlam
+1EC70..1ECBF; 印度帐目数字|Indic Siyaq Numbers
+1ED00..1ED4F; 奥斯曼帐目数字|Ottoman Siyaq Numbers
+1EE00..1EEFF; 阿拉伯数学字母符号|Arabic Mathematical Alphabetic Symbols
+1F000..1F02F; 麻将牌|Mahjong Tiles
+1F030..1F09F; 多米诺牌|Domino Tiles
+1F0A0..1F0FF; 扑克|Playing Cards
+1F100..1F1FF; 附围字母数字补充|Enclosed Alphanumeric Supplement
+1F200..1F2FF; 附围表意文字补充|Enclosed Ideographic Supplement
+1F300..1F5FF; 各式符号及象形|Miscellaneous Symbols and Pictographs
+1F600..1F64F; 表情|Emoticons
+1F650..1F67F; 装饰什锦|Ornamental Dingbats
+1F680..1F6FF; 交通及地图符号|Transport and Map Symbols
+1F700..1F77F; 炼金术符|Alchemical Symbols
+1F780..1F7FF; 几何形状扩充|Geometric Shapes Extended
+1F800..1F8FF; 增补箭头丙|Supplemental Arrows-C
+1F900..1F9FF; 增补符号及象形|Supplemental Symbols and Pictographs
+1FA00..1FA6F; 棋符|Chess Symbols
+1FA70..1FAFF; 符号及象形扩充甲|Symbols and Pictographs Extended-A
+1FB00..1FBFF; 遗留电脑符号|Symbols for Legacy Computing
+20000..2A6DF; 汉字统一表意扩充乙|CJK Unified Ideographs Extension B
+2A700..2B73F; 汉字统一表意扩充丙|CJK Unified Ideographs Extension C
+2B740..2B81F; 汉字统一表意扩充丁|CJK Unified Ideographs Extension D
+2B820..2CEAF; 汉字统一表意扩充戊|CJK Unified Ideographs Extension E
+2CEB0..2EBEF; 汉字统一表意扩充己|CJK Unified Ideographs Extension F
+2EBF0..2EE5F; 汉字统一表意扩充壬|CJK Unified Ideographs Extension I
+2F800..2FA1F; 汉字兼容表意补充|CJK Compatibility Ideographs Supplement
+30000..3134F; 汉字统一表意扩充庚|CJK Unified Ideographs Extension G
+31350..323AF; 汉字统一表意扩充辛|CJK Unified Ideographs Extension H
+E0000..E007F; 标签|Tags
+E0100..E01EF; 变体选择符补充|Variation Selectors Supplement
+F0000..FFFFF; 增补私用区甲|Supplementary Private Use Area-A
+100000..10FFFF; 增补私用区乙|Supplementary Private Use Area-B
