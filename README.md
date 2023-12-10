@@ -12,6 +12,8 @@
 ## 使用教程
 https://www.bilibili.com/video/BV1o94y177BM/
 
+**软件下载：[点我](https://githubfast.com/Losketch/Unicode-Flash-Mob/releases/latest)！**
+
 ## 软件授权
 本项目基于 SIL Open Font License 修改、补充和发布。详见[授权文件](LICENSE)，您可以：
 
