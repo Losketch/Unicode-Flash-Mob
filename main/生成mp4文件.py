@@ -1,19 +1,44 @@
 import os
 import subprocess
+import re
+import sys
 
 def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
     ffmpeg_path = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'bin', 'ffmpeg.exe')
-    
+
     # 生成包含所有图像文件的临时文件
     temp_file = 'temp.txt'
     with open(temp_file, 'w') as file:
         for image_file in file_list:
             file.write(f"file '{os.path.join(image_folder, image_file)}'\n")
-            
+
     # 使用FFmpeg concat协议将图片合成视频
-    ffmpeg_command = f'"{ffmpeg_path}" -y -r {frame_rate} -f concat -safe 0 -i {temp_file} -c:v libx264 -crf 18 -pix_fmt yuv420p {output_file}'
-    subprocess.run(ffmpeg_command, shell=True)
-    
+    ffmpeg_command = [
+        ffmpeg_path,
+        '-y',
+        '-r', str(frame_rate),
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', temp_file,
+        '-c:v', 'libx264',
+        '-crf', '18',
+        '-pix_fmt', 'yuv420p',
+        '-fflags', '+genpts',
+        '-loglevel', '50',  # 设置记录级别为info
+        output_file
+    ]
+
+    # 使用subprocess模块执行ffmpeg命令并实时输出日志
+    process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    for line in process.stdout:
+        # 使用正则表达式匹配[libx264 @ xxxxxxxxxxxxxxxx] frame=并刷新显示
+        match = re.search(r'\[libx264 @ [^\]]+\] frame=', line)
+        if match:
+            print(line.strip())  # 输出匹配的内容
+            sys.stdout.flush()  # 刷新显示
+
+    process.wait()  # 等待ffmpeg进程完成
+
     # 删除临时文件
     os.remove(temp_file)
 
