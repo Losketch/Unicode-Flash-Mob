@@ -60,7 +60,8 @@ def generate_image(line_index):
 
         if middle_font is None:
             # 如果所有字体均无法显示字符，则使用默认的替代字符
-            unicode_char = "?"
+            unicode_char = "Please check if there is a font file named “font.ttf” in the directory, paying attention to the case sensitivity.\nAlternatively, if you are unable to display a specific Unicode character, it could be due to the font you are using.\nYou may need to use a different font that supports the Unicode character you're trying to display."
+            bottom_font_size = 38
 
         _, _, text_width, text_height = draw.textbbox((0, 0), unicode_char, font=middle_font)
         text_position = ((image_size[0] - text_width) // 2, (image_size[1] - text_height) // 4)
