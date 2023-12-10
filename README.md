@@ -13,7 +13,7 @@
 https://www.bilibili.com/video/BV1o94y177BM/
 
 ## 软件授权
-本项目基于 SIL Open Font License 修改、补充和发布。详见[授权文件](LICENSE.txt)，您可以：
+本项目基于 SIL Open Font License 修改、补充和发布。详见[授权文件](LICENSE)，您可以：
 
 - 免费使用，包括商用，无需付费、告知或标明原作者。
 - 自由分享项目文件，并将其安装在任何软件或设备中。
