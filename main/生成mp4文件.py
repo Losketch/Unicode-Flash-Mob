@@ -8,7 +8,7 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
 
     # 生成包含所有图像文件的临时文件
     temp_file = 'temp.txt'
-    with open(temp_file, 'w') as file:
+    with open(temp_file, 'w', encoding='utf-8') as file:  # 指定编码为UTF-8
         for image_file in file_list:
             file.write(f"file '{os.path.join(image_folder, image_file)}'\n")
 
@@ -42,15 +42,16 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
     # 删除临时文件
     os.remove(temp_file)
 
-# 获取输入文件夹和输出文件路径
-input_folder = 'png'  # 输入文件夹路径
+# 在获取输入文件夹的时候使用os.fsdecode
+input_folder = os.fsdecode('png')  # 输入文件夹路径
 
 # 获取用户输入的输出视频名称
 def get_output_video_name():
     while True:
         output_file_name = input("请输入输出视频的名称：")  # 自定义输出视频名称
+        output_file_name = output_file_name.lstrip('\ufeff')  # 去掉文件名中的BOM
         output_file = os.path.join('output', output_file_name + '.mp4')  # 输出视频文件路径（自动添加路径和扩展名）
-        
+
         if os.path.exists(output_file):
             replace = input("已存在同名文件，是否替换？(Y/N): ")
             if replace.lower() == 'y':
@@ -76,7 +77,26 @@ frame_rate = get_frame_rate()
 
 # 获取图像文件列表并按照用户要求的顺序排序
 image_files = [f for f in os.listdir(input_folder) if f.endswith('.png')]
-sorted_image_files = sorted(image_files, key=lambda x: int(x.split('_U+')[1].split('.')[0], 16))
+
+for file_name in image_files:
+    try:
+        # 使用正则表达式提取 Unicode 编码
+        match = re.search(r'_U\+([0-9A-Fa-f]+)\.png', file_name)
+        if match:
+            unicode_value = int(match.group(1), 16)
+            print(f"File: {file_name}, Unicode Value: {unicode_value}")
+        else:
+            raise ValueError("Invalid file name format")
+    except ValueError as e:
+        print(f"Error processing file {file_name}: {e}")
+        print(f"File Content: {file_name.encode('unicode_escape').decode()}")  # 打印文件内容的 Unicode 转义表示
+
+# 使用os.fsdecode规范化文件名
+sorted_image_files = sorted(
+    image_files,
+    key=lambda x: int(re.search(r'_U\+([0-9A-Fa-f]+)\.png', re.sub(r'^[\ufeff]+', '', os.fsdecode(x))).group(1), 16)
+    if re.search(r'_U\+([0-9A-Fa-f]+)\.png', re.sub(r'^[\ufeff]+', '', os.fsdecode(x))) else 0
+)
 
 # 生成视频
 output_file = os.path.join('output', output_file_name + '.mp4')  # 输出视频文件路径

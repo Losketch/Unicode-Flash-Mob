@@ -3,19 +3,7 @@ from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import time
-import hashlib
 import configparser
-
-# 添加颜色索引字典
-color_index_dict = {}
-
-# 添加哈希函数
-def calculate_color_index(description, color_cycle_length):
-    hash_value = int(hashlib.sha256(description.encode()).hexdigest(), 16)
-    return hash_value % color_cycle_length
-
-# 添加全局变量
-global_color_index = 0
 
 # 创建文件目录下新建一个png的目录
 os.makedirs("png", exist_ok=True)
@@ -31,7 +19,7 @@ with open(unicode_txt, "r", encoding="utf-8") as f:
 config = configparser.ConfigParser()
 config.read('settings.ini')
 
-# 设置字体路径和字体大小
+# 设置字体路径和字体大小   bak:(bottom_font_size = 32)
 font_files = [
     os.path.join(os.getcwd(), "font.ttf")
 ]
@@ -50,20 +38,11 @@ text_position_y = int(config.get('Settings', 'text_position_y', fallback=0))
 # 获取中央字符颜色，默认为白色
 middle_font_color = tuple(map(int, config.get('Settings', 'middle_font_color', fallback='255,255,255,255').split(',')))
 
+# 获取背景颜色，默认为黑色
+background_color = tuple(map(int, config.get('Settings', 'background_color', fallback='0,0,0,255').split(',')))
+
 # 设置图片的尺寸
 image_size = (1920, 1080)
-
-# 定义颜色循环顺序
-color_cycle = [
-    (171, 223, 86, 255),
-    (109, 231, 78, 255),
-    (0, 203, 129, 255),
-    (0, 190, 157, 255),
-    (0, 149, 224, 255),
-    (52, 181, 223, 255),
-    (51, 226, 253, 255),
-    (104, 245, 159, 255)
-]
 
 # 获取Unicode.txt文件的行数
 def get_unicode_lines():
@@ -79,39 +58,14 @@ total_lines = len(unicode_lines)
 progress_bar = tqdm(total=total_lines, desc="生成图片进度", unit="行", ncols=80)
 
 # 定义生成图片的函数
-def generate_image(line):
+def generate_image(line_index):
     try:
         # 转换Unicode编码为字符
-        parts = line.split("-")
-        if len(parts) >= 2 and parts[0]:
-            unicode_char, description = chr(int(parts[0][2:], 16)), parts[1]
-        else:
-            raise ValueError("Invalid line format")
+        line = unicode_lines[line_index]
+        unicode_char = chr(int(line.split("-")[0][2:], 16))
 
-        # 创建空白图像
-        image = Image.new("RGBA", image_size, color=(0, 0, 0, 0))
-
-        # 设置背景颜色
-        # 修改颜色计算部分
-        global global_color_index, color_index_dict
-
-        # 计算哈希值
-        hash_value = calculate_color_index(description, len(color_cycle))
-        #print(f"Description: {description}, Hash Value: {hash_value}")
-    
-        # 使用字典获取颜色索引，如果不存在则添加
-        if hash_value not in color_index_dict:
-            color_index_dict[hash_value] = global_color_index % len(color_cycle)
-            global_color_index += 1
-
-        # 获取颜色索引
-        color_index = color_index_dict[hash_value]
-
-        # 设置背景颜色
-        background_color = color_cycle[color_index]
-        image = image.convert("RGB")
-        image.putalpha(255)
-        image.paste(Image.new("RGBA", image_size, background_color), (0, 0), image)
+        # 创建空白图像，使用用户定义的背景颜色
+        image = Image.new("RGBA", image_size, color=background_color)
 
         # 在图像中央绘制Unicode字符，使用用户定义的颜色
         draw = ImageDraw.Draw(image)
@@ -154,7 +108,7 @@ def generate_image(line):
 # 使用多线程生成图片
 with ThreadPoolExecutor() as executor:
     start_time = time.time()
-    executor.map(generate_image, unicode_lines)
+    executor.map(generate_image, range(total_lines))
 
 # 关闭进度条
 progress_bar.close()

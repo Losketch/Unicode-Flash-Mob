@@ -15,6 +15,17 @@ def extract_unicode_from_font(font_file):
     with open(out_file, 'w', encoding='utf-8') as file:
         file.write('\n'.join(unicode_list))
 
+    # 提示用户是否要重命名字体文件
+    rename_choice = input("\n是否要将字体文件重命名为font.ttf？ (y/n): ").lower()
+    if rename_choice == 'y':
+        rename_font_file(font_path)
+
+def rename_font_file(font_path):
+    # 重命名字体文件为font.ttf
+    new_font_path = os.path.join(os.path.dirname(font_path), 'font.ttf')
+    os.rename(font_path, new_font_path)
+    print(f"字体文件已重命名为 {new_font_path}")
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
