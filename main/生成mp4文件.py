@@ -4,7 +4,29 @@ import re
 import sys
 
 def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
-    ffmpeg_path = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'bin', 'ffmpeg.exe')
+    # 获取环境变量中的 ffmpeg 路径
+    ffmpeg_path = os.environ.get("PATH")
+
+    # 从环境变量中查找 ffmpeg.exe
+    for path in ffmpeg_path.split(os.pathsep):
+        if os.path.exists(os.path.join(path, "ffmpeg.exe")):
+            ffmpeg_path = os.path.join(path, "ffmpeg.exe")
+            print(f"\n从环境变量中找到 ffmpeg.exe 文件\n在：{ffmpeg_path}\n")
+            break
+
+    # 如果环境变量中没有找到 ffmpeg.exe，则在当前目录中查找
+    if not os.path.exists(ffmpeg_path):
+        for root, dirs, files in os.walk("."):
+            for file in files:
+                if file.endswith("ffmpeg.exe"):
+                    ffmpeg_path = os.path.join(root, file)
+                    print(f"\n未发现环境变量有，但找到 ffmpeg.exe 文件\n在：{ffmpeg_path}\n")
+                    break
+
+    # 如果仍然没有找到 ffmpeg.exe，则打印提示信息
+    if not os.path.exists(ffmpeg_path):
+        input("\n从环境变量中未找到 ffmpeg.exe 文件\n在当前目录及所有文件夹中未找到 ffmpeg.exe 文件\n你似乎没有 ffmpeg")
+        sys.exit(1)
 
     # 生成包含所有图像文件的临时文件
     temp_file = 'temp.txt'
