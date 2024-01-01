@@ -17,7 +17,7 @@ https://www.bilibili.com/video/BV1o94y177BM/
 > - 实际一个字体大概有3千多～​6553​5个字符（上限），多个字体那更多，全部上限是1114111个字符
 > - 字体越多、 字符越多、生成图片和视频就 越久/费时间。​
 
-### 如果你是普通用户请直接 [点这里](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest) 或到 [releases](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest) 界面 直接下载配置好的应用
+### 如果你是普通用户请直接 [点这里](https://githubfast.com/Losketch/Unicode-Flash-Mob/releases/latest) 或到 [releases](https://githubfast.com/Losketch/Unicode-Flash-Mob/releases/latest) 界面 直接下载配置好的应用
 
 ## 软件授权
 本项目基于 SIL Open Font License 修改、补充和发布。详见[授权文件](LICENSE)，您可以：
@@ -37,8 +37,28 @@ https://www.bilibili.com/video/BV1o94y177BM/
 你可以通过把多个字体提取和重命名成font.ttf，然后生成类似整个unicode字符都有的png文件夹。也就是一个字体生成完的图片，不用生成视频，直接把第二个字体继续生成图片……以此类推。
 
 ## 说明
-此项目给普通用户的版本使用混合编译，既pyinstaller和nuitka混合编译
+此项目给普通用户的版本使用混合编译，即pyinstaller和nuitka混合编译
 
+如果你要直接运行或修改源代码后运行，请安装以下第三方库
 
+`更新UnicodeDataBlocks.py` 需要安装以下库
+```
+pip install requests
+```
 
+`把字体文件托到此处提取支持显示字符列表.py` 需要安装以下库
+```
+pip install fonttools
+```
 
+`生成png（背景变化）.py` 和 `生成png（背景不变）.py`需要安装以下库
+```
+pip install Pillow
+pip install tqdm
+```
+### 其他部分
+`获取图像RGB颜色值.py` 和 `验证获取图像RGB颜色值是否正确.py`需要安装以下库
+```
+pip install Pillow
+pip install tkinterdnd2
+```
