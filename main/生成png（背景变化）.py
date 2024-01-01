@@ -88,6 +88,9 @@ def generate_image(line):
         else:
             raise ValueError("Invalid line format")
 
+        # 如果所有字体均无法显示字符，则使用默认的替代字符
+        default_text = "请检查目录中是否有名为“font.ttf”的字体文件(区分大小写)\n如果无法显示特定的字符, 可能是使用的字体不正常\n也有可能你使用的不是常规字体, 列如emoji字体"
+
         # 创建空白图像
         image = Image.new("RGBA", image_size, color=(0, 0, 0, 0))
 
@@ -125,13 +128,13 @@ def generate_image(line):
 
         if middle_font is None:
             # 如果所有字体均无法显示字符，则使用默认的替代字符
-            unicode_char = "Please check if there is a font file named “font.ttf” in the directory, paying attention to the case sensitivity.\nAlternatively, if you are unable to display a specific Unicode character, it could be due to the font you are using.\nYou may need to use a different font that supports the Unicode character you're trying to display."
+            middle_font = ImageFont.truetype(bottom_font_path, 40)  # 指定字体为 "PressStart2P-1.ttf"，大小为 40
 
         # 获取文本的位置（x, y）
-        text_x, text_y, text_width, text_height = draw.textbbox((text_position_x, text_position_y), unicode_char, font=middle_font)
+        text_x, text_y, text_width, text_height = draw.textbbox((text_position_x, text_position_y), default_text, font=middle_font)
         # 在图像中央绘制 Unicode 字符，使用用户定义的颜色
         text_position = ((image_size[0] - text_width) // 2, (image_size[1] - text_height) // 4)
-        draw.text(text_position, unicode_char, fill=middle_font_color, font=middle_font)
+        draw.text(text_position, default_text, fill=middle_font_color, font=middle_font)
 
         # 在图像左下角绘制当前生成的Unicode编码相同的Unicode.txt的整行内容
         bottom_text = line.strip()

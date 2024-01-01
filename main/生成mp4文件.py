@@ -1,4 +1,5 @@
 import os
+import platform
 import subprocess
 import re
 import sys
@@ -18,8 +19,9 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
     if not os.path.exists(ffmpeg_path):
         for root, dirs, files in os.walk("."):
             for file in files:
-                if file.endswith("ffmpeg.exe"):
-                    ffmpeg_path = os.path.join(root, file)
+                if file.endswith("ffmpeg.exe") and os.path.basename(os.path.dirname(root)) == "ffmpeg":
+                    # 将 ffmpeg_path 限定在当前目录下
+                    ffmpeg_path = os.path.abspath(os.path.join(root, file))
                     print(f"\n未发现环境变量有，但找到 ffmpeg.exe 文件\n在：{ffmpeg_path}\n")
                     break
 
@@ -64,8 +66,26 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
     # 删除临时文件
     os.remove(temp_file)
 
-# 在获取输入文件夹的时候使用os.fsdecode
-input_folder = os.fsdecode('png')  # 输入文件夹路径
+# 获取操作系统类型
+os_type = platform.system()
+print(f"Operating System: {os_type}")
+
+# 检查脚本文件是否在U盘中
+script_path = os.path.abspath(__file__)
+is_on_usb = False
+if os_type == 'Windows':
+    drive_type = os.path.splitdrive(script_path)[0]
+    is_on_usb = os.path.ismount(drive_type)
+
+print(f"Script Path: {script_path}")
+print(f"Is on USB: {is_on_usb}")
+
+# 输出当前工作目录
+print(f"Current Working Directory: {os.getcwd()}")
+
+# 拼接绝对路径
+input_folder = os.path.join(os.path.dirname(script_path), 'png')
+print(f"Absolute Input Folder Path: {input_folder}")
 
 # 获取用户输入的输出视频名称
 def get_output_video_name():
@@ -94,11 +114,15 @@ def get_frame_rate():
         except ValueError:
             print("无效的输入，请输入一个数字.")
 
+# 输出关键变量的值
 output_file_name = get_output_video_name()
 frame_rate = get_frame_rate()
+print(f"Output File Name: {output_file_name}")
+print(f"Frame Rate: {frame_rate}")
 
 # 获取图像文件列表并按照用户要求的顺序排序
 image_files = [f for f in os.listdir(input_folder) if f.endswith('.png')]
+print(f"Image Files: {image_files}")
 
 for file_name in image_files:
     try:
