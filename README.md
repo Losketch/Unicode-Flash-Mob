@@ -62,3 +62,28 @@ pip install tqdm
 pip install Pillow
 pip install tkinterdnd2
 ```
+
+## 编译
+此项目使用混合编译成exe文件，编译前需要安装 `pyinstaller库` 和 `nuitka库`
+```
+pip install pyinstaller
+pip install nuitka
+```
+
+### 编译代码如下
+``` python
+pyinstaller --onefile 把字体文件托到此处提取支持显示字符列表.py
+pyinstaller --onefile --icon="path/输入x~x的u码.ico" 输入x~x的u码.py
+pyinstaller --onefile 将Unicode.txt选择生成图片左下角说明.py
+nuitka --standalone --onefile 将Unicode.txt选择生成图片左下角说明.py
+nuitka --standalone --onefile "创建&重置settings.ini配置文件.py"
+
+pyinstaller --onefile 生成png（背景变化）.py
+pyinstaller --onefile 生成png（背景不变）.py
+或
+nuitka --follow-imports --standalone --onefile --include-package=PIL --include-package=tqdm 生成png（背景变化）.py
+nuitka --follow-imports --standalone --onefile --include-package=PIL --include-package=tqdm 生成png（背景不变）.py
+
+nuitka --standalone --onefile 生成mp4文件.py
+```
+其中生成 `png（xxxx）.py` 可选用`pyinstaller库` 和 `nuitka库`编译exe
