@@ -68,7 +68,7 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
 
 # 获取操作系统类型
 os_type = platform.system()
-print(f"Operating System: {os_type}")
+print(f"操作系统: {os_type}")
 
 # 检查脚本文件是否在U盘中
 script_path = os.path.abspath(__file__)
@@ -77,15 +77,15 @@ if os_type == 'Windows':
     drive_type = os.path.splitdrive(script_path)[0]
     is_on_usb = os.path.ismount(drive_type)
 
-print(f"Script Path: {script_path}")
-print(f"Is on USB: {is_on_usb}")
+print(f"脚本路径: {script_path}")
+print(f"在USB上: {is_on_usb}")
 
 # 输出当前工作目录
-print(f"Current Working Directory: {os.getcwd()}")
+print(f"当前工作目录: {os.getcwd()}")
 
 # 拼接绝对路径
 input_folder = os.path.join(os.path.dirname(script_path), 'png')
-print(f"Absolute Input Folder Path: {input_folder}")
+print(f"绝对文件夹路径: {input_folder}")
 
 # 获取用户输入的输出视频名称
 def get_output_video_name():
