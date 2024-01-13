@@ -4,6 +4,8 @@ import subprocess
 import re
 import sys
 
+os.chdir(os.path.dirname(sys.argv[0]))
+
 def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
     # 获取环境变量中的 ffmpeg 路径
     ffmpeg_path = os.environ.get("PATH")
@@ -24,6 +26,18 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
                     ffmpeg_path = os.path.abspath(os.path.join(root, file))
                     print(f"\n未发现环境变量有，但找到 ffmpeg.exe 文件\n在：{ffmpeg_path}\n")
                     break
+
+    # 在测试直接拼接绝对目录之前，先保存当前的 ffmpeg_path
+    original_ffmpeg_path = ffmpeg_path
+
+    # 直接拼接绝对路径尝试获取 ffmpeg.exe 文件
+    ffmpeg_path = os.path.abspath(os.path.join(".", "ffmpeg", "bin", "ffmpeg.exe"))
+
+    # 打印测试结果
+    if os.path.exists(ffmpeg_path):
+        print(f"\n在当前目录下测试直接拼接绝对目录成功\n在：{ffmpeg_path}\n")
+    else:
+        print(f"\n在当前目录下测试直接拼接绝对目录失败\n")
 
     # 如果仍然没有找到 ffmpeg.exe，则打印提示信息
     if not os.path.exists(ffmpeg_path):
@@ -71,20 +85,21 @@ os_type = platform.system()
 print(f"操作系统: {os_type}")
 
 # 检查脚本文件是否在U盘中
-script_path = os.path.abspath(__file__)
+script_path = os.path.realpath(__file__)
 is_on_usb = False
 if os_type == 'Windows':
     drive_type = os.path.splitdrive(script_path)[0]
     is_on_usb = os.path.ismount(drive_type)
 
 print(f"脚本路径: {script_path}")
-print(f"在USB上: {is_on_usb}")
+print(f"在U盘上: {is_on_usb}")
 
 # 输出当前工作目录
 print(f"当前工作目录: {os.getcwd()}")
 
 # 拼接绝对路径
-input_folder = os.path.join(os.path.dirname(script_path), 'png')
+runtime_dir = getattr(sys, '_MEIPASS', os.path.abspath("."))
+input_folder = os.path.abspath(os.path.join(runtime_dir, 'png'))
 print(f"绝对文件夹路径: {input_folder}")
 
 # 获取用户输入的输出视频名称
