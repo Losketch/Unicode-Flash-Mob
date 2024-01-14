@@ -88,3 +88,22 @@ nuitka --follow-imports --standalone --onefile --include-package=PIL --include-p
 nuitka --standalone --onefile 生成mp4文件.py
 ```
 其中生成 `png（xxxx）.py` 可选用`pyinstaller库` 和 `nuitka库`编译exe
+
+
+## 题外话
+项目制作难度较大，制作时间有点长，若愿意支持，在此致以诚挚感谢！您的捐助可以帮助此项目以更好发展。
+
+在您捐助之前请务必注意以下几点：
+- 捐款前请务必仔细确付款账户（支付宝：Fitzgerald K.、微信：蔽芪茢·茇䓮·蓲䒤菥。如用户名有改动，则第一时间会做出更正），我们无法承担您受骗的损失。
+- 目前只有这一个页面是正式的受捐页面。如果您在其它地方看到此项目的捐款链接，请立刻对其进行举报，必要时可协助相关司法机关。
+- 您向本项目捐助，即默认表明您赞同我们的理念，并愿意以此种方式支持我们的发展。捐助者提出的意见会被认真考虑，但捐款再多也没有权利以个人意志改变本项目的宗旨和公益性质。
+- 捐助后如愿意，可留言写明您的捐款时间和金额，感谢您对本项目的支持。
+- 所有捐助资金均会逐一记录，并将全部用于该项目的技术支持等开销，不会被私用。
+- 上文所叙述的捐赠方法仅适用于中国大陆的用户。捐款前请务必仔细确付款账户（用户名：Losketch，姓名：**乐。如用户名有改动，则第一时间会做出更正），我们无法承担您受骗的损失。
+![Image text](https://github.com/Losketch/Unicode-Flash-Mob/blob/main/pic/1650383987393.jpg)
+
+## 联系方式
+- GitHub: https://githubt.com/Losketch
+- QQ 邮箱: 762270064@qq.com
+- QQ: 762270064
+- Gmail: chenlelei644@gmail.com
