@@ -2,11 +2,12 @@ def replace_content(temp_file, option):
     file_map = {
         '1': 'DecipherUnicodeBlocks.txt',
         '2': 'DecipherUnicodeData.txt',
-        '3': 'DecipherUnicodeLosketchBlocks.txt'
+        '3': 'DecipherUnicodeLosketchBlocks.txt',
+        '4': 'DecipherUnicodeDataBlocks.txt'
     }
 
-    while option not in ['1', '2', '3']:
-        option = input("\n输入非1~3，请重新选择：")
+    while option not in ['1', '2', '3', '4']:
+        option = input("\n输入非1~4，请重新选择：")
 
     unicode_file = file_map[option]
 
@@ -38,5 +39,5 @@ def replace_content(temp_file, option):
         f.writelines(replaced_lines)
 
 # 测试
-option = input("请选择生成图片左下角说明文件\n\n1.选择DecipherUnicodeBlocks.txt 无翻译各个字符区块\n\n2.选择DecipherUnicodeData.txt  每个字符的详细信息\n\n3.选择DecipherUnicodeLosketchBlocks.txt 有翻译各个字符区块\n\n你选择：")
+option = input("请选择生成图片左下角说明文件\n\n1.选择DecipherUnicodeBlocks.txt 无翻译各个字符区块\n\n2.选择DecipherUnicodeData.txt  每个字符的详细信息\n\n3.选择DecipherUnicodeLosketchBlocks.txt 有翻译各个字符区块\n\n4.选择DecipherUnicodeDataBlocks.txt 每个字符的详细信息+有翻译字符区块信息\n\n你选择：")
 replace_content('Unicode.txt', option)

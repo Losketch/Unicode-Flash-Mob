@@ -79,6 +79,9 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
 
     # 删除临时文件
     os.remove(temp_file)
+    
+    # 在函数末尾返回ffmpeg路径
+    return ffmpeg_path
 
 # 获取操作系统类型
 os_type = platform.system()
@@ -159,6 +162,49 @@ sorted_image_files = sorted(
     if re.search(r'_U\+([0-9A-Fa-f]+)\.png', re.sub(r'^[\ufeff]+', '', os.fsdecode(x))) else 0
 )
 
-# 生成视频
+# 生成视频并获取ffmpeg路径
 output_file = os.path.join('output', output_file_name + '.mp4')  # 输出视频文件路径
-convert_images_to_video(input_folder, output_file, frame_rate, sorted_image_files)
+ffmpeg_path = convert_images_to_video(input_folder, output_file, frame_rate, sorted_image_files)
+
+
+
+
+
+
+
+def add_music_to_video(video_file, music_file, output_file, ffmpeg_path):
+    # 构造FFmpeg命令来合并视频和音乐
+    ffmpeg_command = [
+        ffmpeg_path,
+        '-y',
+        '-i', video_file,
+        '-stream_loop', '-1',  # 无限循环音乐
+        '-i', music_file,
+        '-shortest',  # 当视频结束时停止音乐循环
+        '-c:v', 'copy',  # 复制视频流
+        '-c:a', 'aac',  # 转换音频流为aac
+        output_file
+    ]
+
+    # 执行FFmpeg命令
+    subprocess.run(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+# 视频生成完毕后询问用户是否添加音乐
+add_music_choice = input("\n\n是否要为视频添加音乐? (y/n): ").lower()
+if add_music_choice == 'y':
+    # 视频文件路径
+    video_file = os.path.join('output', output_file_name + '.mp4')
+    print(f"\n视频文件路径: {video_file}")
+    # 音乐文件路径
+    music_file = os.path.join(os.path.dirname(sys.argv[0]), 'DecodeUnicodeTheMusic.mp3')
+    print(f"音乐文件路径: {music_file}")
+    # 输出文件路径
+    output_with_music = os.path.join('output', output_file_name + '_music.mp4')
+    print(f"输出文件路径: {output_with_music}")
+    # 调用函数添加音乐时传递ffmpeg_path
+    add_music_to_video(video_file, music_file, output_with_music, ffmpeg_path)
+    print(f"音乐已添加到视频中，输出文件为: {output_with_music}")
+else:
+    print("未添加音乐，程序结束。")
+    sys.exit(0)
+

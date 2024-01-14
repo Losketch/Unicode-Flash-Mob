@@ -38,7 +38,7 @@ font_files = [
 # 获取middle_font_size的值，默认为512
 middle_font_size = int(config.get('Settings', 'middle_font_size', fallback=512))
 bottom_font_path = os.path.join(os.getcwd(), "PressStart2P-1.ttf")
-bottom_font_size = 38
+bottom_font_size = int(config.get('Settings', 'bottom_font_size', fallback=19))
 
 # 获取text_height的值，默认为1000
 text_height = int(config.get('Settings', 'text_height', fallback=1000))
@@ -140,7 +140,7 @@ def generate_image(line):
             modified_text = bottom_text[:index].replace("-", "\n") + bottom_text[index:].replace("|", "\n")
             bottom_text = modified_text
         bottom_font = ImageFont.truetype(bottom_font_path, bottom_font_size)
-        bottom_text_position = (50, image_size[1] - bottom_font_size - 150)
+        bottom_text_position = (100, image_size[1] - bottom_font_size - 125)
         draw.text(bottom_text_position, bottom_text, fill="white", font=bottom_font)
 
         # 保存生成的图片
