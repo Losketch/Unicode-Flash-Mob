@@ -102,7 +102,7 @@ nuitka --standalone --onefile 生成mp4文件.py
 - 捐助后如愿意，可留言写明您的捐款时间和金额，感谢您对本项目的支持。
 - 所有捐助资金均会逐一记录，并将全部用于该项目的技术支持等开销，不会被私用。
 - 上文所叙述的捐赠方法仅适用于中国大陆的用户。捐款前请务必仔细确付款账户（用户名：Losketch，姓名：**乐。如用户名有改动，则第一时间会做出更正），我们无法承担您受骗的损失。
-![Image text](https://githubfast.com/Losketch/Unicode-Flash-Mob/blob/main/main/background/wxzf.png)
+![Image text](https://github.com/Losketch/Unicode-Flash-Mob/blob/main/main/background/wxzf.png)
 
 ## 联系方式
 - GitHub: https://githubfast.com/Losketch
