@@ -15,4 +15,7 @@ pip3 install tqdm -i https://pypi.tuna.tsinghua.edu.cn/simple/
 pip3 install ffmpeg-python -i https://pypi.tuna.tsinghua.edu.cn/simple/
 pip3 install ffmpeg -i https://pypi.tuna.tsinghua.edu.cn/simple/
 
-目录里的exe文件只是体验功能用的，真正想要生成视频还是要安装python并且已经配置好了正确的环境和安装了上面的第三方库
+支持更多字体
+支持更多图片尺寸
+支持生成 GIF 图片
+支持更多生成模式。目前，代码只生成单个 Unicode 字符的图片。可以添加更多生成模式，例如生成多个 Unicode 字符的图片
