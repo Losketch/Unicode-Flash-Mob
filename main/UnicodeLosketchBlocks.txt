@@ -1,5 +1,5 @@
 ﻿# Blocks-15.1.0.txt
-# 日期：2024-01-27, 19:58:11 GMT
+# 日期：2024-02-01, 21:02:56 GMT
 # © 2023 Unicode®, Inc.
 # 使用条款详见 https://www.unicode.org/terms_of_use.html
 #
@@ -38,12 +38,12 @@
 0700..074F; 叙利亚文|Syriac
 0750..077F; 阿拉伯文补充|Arabic Supplement
 0780..07BF; 它拿文|Thaana
-07C0..07FF; 西非书面文|N’Ko
+07C0..07FF; 西非书面文|N`Ko
 0800..083F; 撒马利亚文|Samaritan
 0840..085F; 曼达文|Mandaic
 0860..086F; 叙利亚文补充|Syriac Supplement
-0870..089F; 阿拉伯文扩展A|Arabic Extended-B
-08A0..08FF; 阿拉伯文扩展B|Arabic Extended-A
+0870..089F; 阿拉伯文扩展B|Arabic Extended-B
+08A0..08FF; 阿拉伯文扩展A|Arabic Extended-A
 0900..097F; 天城文|Devanagari
 0980..09FF; 孟加拉文|Bengali
 0A00..0A7F; 果鲁穆奇文|Gurmukhi
@@ -103,9 +103,9 @@
 2190..21FF; 箭头|Arrows
 2200..22FF; 数学运算符|Mathematical Operators
 2300..23FF; 杂项工业符号|Miscellaneous Technical
-2400..243F; 控制图符|Control Pictures
+2400..243F; 控制图形符号|Control Pictures
 2440..245F; 光学识别符|Optical Character Recognition
-2460..24FF; 包围字母数字|Enclosed Alphanumerics
+2460..24FF; 包围式字母数字|Enclosed Alphanumerics
 2500..257F; 制表符|Box Drawing
 2580..259F; 方块元素|Block Elements
 25A0..25FF; 几何图形|Geometric Shapes
@@ -139,7 +139,7 @@
 31A0..31BF; 注音符号扩展|Bopomofo Extended
 31C0..31EF; 中日韩笔画|CJK Strokes
 31F0..31FF; 片假名音标扩展|Katakana Phonetic Extensions
-3200..32FF; 包围中日韩字母及月份|Enclosed CJK Letters and Months
+3200..32FF; 包围式中日韩字母及月份|Enclosed CJK Letters and Months
 3300..33FF; 中日韩兼容全角字符|CJK Compatibility
 3400..4DBF; 中日韩统一汉字扩展A|CJK Unified Ideographs Extension A
 4DC0..4DFF; 易经六十四卦符号|Yijing Hexagram Symbols
@@ -172,9 +172,9 @@ AB70..ABBF; 切罗基文补充|Cherokee Supplement
 ABC0..ABFF; 米代文|Meetei Mayek
 AC00..D7AF; 谚文音节|Hangul Syllables
 D7B0..D7FF; 谚文字母扩展B|Hangul Jamo Extended-B
-D800..DB7F; 高替代区|High Surrogates
-DB80..DBFF; 高私用替代区|High Private Use Surrogates
-DC00..DFFF; 低替代区|Low Surrogates
+D800..DB7F; 高位代理项区|High Surrogates
+DB80..DBFF; 高私用位代理项区|High Private Use Surrogates
+DC00..DFFF; 低位代理项区|Low Surrogates
 E000..F8FF; 私用区|Private Use Area
 F900..FAFF; 中日韩兼容汉字|CJK Compatibility Ideographs
 FB00..FB4F; 字母变体形式|Alphabetic Presentation Forms
@@ -187,8 +187,8 @@ FE50..FE6F; 小型标点符号|Small Form Variants
 FE70..FEFF; 阿拉伯文变体B|Arabic Presentation Forms-B
 FF00..FFEF; 半角及符号|Halfwidth and Fullwidth Forms
 FFF0..FFFF; 特殊符号|Specials
-10000..1007F; 线形B音节文|Linear B Syllabary
-10080..100FF; 线形B表意文|Linear B Ideograms
+10000..1007F; 线形文字B音节字母|Linear B Syllabary
+10080..100FF; 线形文字B表意文字|Linear B Ideograms
 10100..1013F; 爱琴数字|Aegean Numbers
 10140..1018F; 古希腊数字|Ancient Greek Numbers
 10190..101CF; 古代符号|Ancient Symbols
@@ -313,7 +313,7 @@ FFF0..FFFF; 特殊符号|Specials
 16EA0..16EFF; 未定义|<not a character>
 16F00..16F9F; 老苗文|Miao
 16FA0..16FDF; 未定义|<not a character>
-16FE0..16FFF; 表意符号及标点|Ideographic Symbols and Punctuation
+16FE0..16FFF; 表意文字符号及标点|Ideographic Symbols and Punctuation
 17000..187FF; 西夏文|Tangut
 18800..18AFF; 西夏文部首|Tangut Components
 18B00..18CFF; 契丹小字|Khitan Small Script
@@ -367,8 +367,8 @@ FFF0..FFFF; 特殊符号|Specials
 1F000..1F02F; 麻将牌|Mahjong Tiles
 1F030..1F09F; 多米诺骨牌|Domino Tiles
 1F0A0..1F0FF; 扑克牌|Playing Cards
-1F100..1F1FF; 包围字母数字补充|Enclosed Alphanumeric Supplement
-1F200..1F2FF; 包围表意文字补充|Enclosed Ideographic Supplement
+1F100..1F1FF; 包围式字母数字补充|Enclosed Alphanumeric Supplement
+1F200..1F2FF; 包围式表意文字补充|Enclosed Ideographic Supplement
 1F300..1F5FF; 杂项符号和图形文字|Miscellaneous Symbols and Pictographs
 1F600..1F64F; 表情符号|Emoticons
 1F650..1F67F; 装饰印刷符号|Ornamental Dingbats
