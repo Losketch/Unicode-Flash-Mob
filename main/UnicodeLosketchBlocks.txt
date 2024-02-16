@@ -210,7 +210,7 @@ FFF0..FFFF; 特殊符号|Specials
 10500..1052F; 艾尔巴桑文|Elbasan
 10530..1056F; 高加索阿尔巴尼亚文|Caucasian Albanian
 10570..105BF; 维斯库其文|Vithkuqi
-105C0..105FF; 未定义|<not a character>
+105C0..105FF; 托德里文|Todhri
 10600..1077F; 线形文字A|Linear A
 10780..107BF; 拉丁文扩展F|Latin Extended-F
 107C0..107FF; 未定义|<not a character>
@@ -239,7 +239,8 @@ FFF0..FFFF; 特殊符号|Specials
 10C50..10C7F; 未定义|<not a character>
 10C80..10CFF; 古匈牙利文|Old Hungarian
 10D00..10D3F; 哈乃斐罗兴亚文|Hanifi Rohingya
-10D40..10E5F; 未定义|<not a character>
+10D40..10D8F; 加勒伊文|Garay
+10D90..10E5F; 未定义|<not a character>
 10E60..10E7F; 卢米文数字符号|Rumi Numeral Symbols
 10E80..10EBF; 耶兹迪文|Yezidi
 10EC0..10EFF; 阿拉伯文扩展C|Arabic Extended-C
@@ -260,7 +261,7 @@ FFF0..FFFF; 特殊符号|Specials
 11280..112AF; 穆尔塔尼文|Multani
 112B0..112FF; 库达瓦迪文|Khudawadi
 11300..1137F; 古兰塔文|Grantha
-11380..113FF; 未定义|<not a character>
+11380..113FF; 图鲁提加拉里文|Tulu-Tigalari
 11400..1147F; 纽瓦文|Newa
 11480..114DF; 提尔胡塔文|Tirhuta
 114E0..1157F; 未定义|<not a character>
@@ -268,7 +269,7 @@ FFF0..FFFF; 特殊符号|Specials
 11600..1165F; 莫迪文|Modi
 11660..1167F; 蒙古文补充|Mongolian Supplement
 11680..116CF; 塔克里文|Takri
-116D0..116FF; 未定义|<not a character>
+116D0..116FF; 缅甸文扩展C|Myanmar Extended-C
 11700..1174F; 阿洪姆文|Ahom
 11750..117FF; 未定义|<not a character>
 11800..1184F; 多拉格文|Dogra
@@ -282,6 +283,8 @@ FFF0..FFFF; 特殊符号|Specials
 11AB0..11ABF; 加拿大统一土著音节扩展A|Unified Canadian Aboriginal Syllabics Extended-A
 11AC0..11AFF; 包钦豪文|Pau Cin Hau
 11B00..11B5F; 天城文扩充A|Devanagari Extended-A
+11B60..11BBF; 未定义|<not a character>
+11BC0..11BFF; 苏努瓦文|Sunuwar
 11C00..11C6F; 拜克舒基文|Bhaiksuki
 11C70..11CBF; 象雄文|Marchen
 11CC0..11CFF; 未定义|<not a character>
@@ -300,15 +303,19 @@ FFF0..FFFF; 特殊符号|Specials
 12F90..12FFF; 塞浦路斯米诺斯文字|Cypro-Minoan
 13000..1342F; 古埃及象形文字|Egyptian Hieroglyphs
 13430..1345F; 埃及象形文字控制符|Egyptian Hieroglyph Format Controls
-13460..143FF; 未定义|<not a character>
+13460..143FF; 古埃及象形文字扩展A|Egyptian Hieroglyphs Extended-A
 14400..1467F; 安那托利亚象形文字|Anatolian Hieroglyphs
-14680..167FF; 未定义|<not a character>
+14680..160FF; 未定义|<not a character>
+16100..1613F; 古隆克麦文|Gurung Khema
+16140..167FF; 未定义|<not a character>
 16800..16A3F; 巴姆穆文补充|Bamum Supplement
 16A40..16A6F; 莫罗文|Mro
 16A70..16ACF; 坦撒文|Tangsa
 16AD0..16AFF; 巴萨瓦文|Bassa Vah
 16B00..16B8F; 帕哈苗文|Pahawh Hmong
-16B90..16E3F; 未定义|<not a character>
+16B90..16D3F; 未定义|<not a character>
+16D40..16D7F; 基拉特莱文|Kirat Rai
+16D80..16E3F; 未定义|<not a character>
 16E40..16E9F; 梅德法伊德林文|Medefaidrin
 16EA0..16EFF; 未定义|<not a character>
 16F00..16F9F; 老苗文|Miao
@@ -327,7 +334,9 @@ FFF0..FFFF; 特殊符号|Specials
 1B300..1BBFF; 未定义|<not a character>
 1BC00..1BC9F; 杜普雷速记文|Duployan
 1BCA0..1BCAF; 速记格式控制符|Shorthand Format Controls
-1BCB0..1CEFF; 未定义|<not a character>
+1BCB0..1CBFF; 未定义|<not a character>
+1CC00..1CEBF; 传统计算机符号补充|Symbols for Legacy Computing Supplement
+1CEC0..1CEFF; 未定义|<not a character>
 1CF00..1CFCF; 兹纳乐谱记号|Znamenny Musical Notation
 1CFD0..1CFFF; 未定义|<not a character>
 1D000..1D0FF; 拜占庭音乐符号|Byzantine Musical Symbols
@@ -352,7 +361,9 @@ FFF0..FFFF; 特殊符号|Specials
 1E2C0..1E2FF; 万乔文|Wancho
 1E300..1E4CF; 未定义|<not a character>
 1E4D0..1E4FF; 纳格蒙达里文|Nag Mundari
-1E500..1E7DF; 未定义|<not a character>
+1E500..1E5CF; 未定义|<not a character>
+1E5D0..1E5FF; 奥尔奥那尔文|Ol Onal
+1E600..1E7DF; 未定义|<not a character>
 1E7E0..1E7FF; 埃塞俄比亚文扩展B|Ethiopic Extended-B
 1E800..1E8DF; 门德基卡库文|Mende Kikakui
 1E8E0..1E8FF; 未定义|<not a character>
@@ -379,7 +390,7 @@ FFF0..FFFF; 特殊符号|Specials
 1F900..1F9FF; 符号及图形标记补充|Supplemental Symbols and Pictographs
 1FA00..1FA6F; 棋类符号|Chess Symbols
 1FA70..1FAFF; 符号及图形扩展A|Symbols and Pictographs Extended-A
-1FB00..1FBFF; 传统电脑符号|Symbols for Legacy Computing
+1FB00..1FBFF; 传统计算机符号|Symbols for Legacy Computing
 1FC00..1FFFD; 未定义|<not a character>
 20000..2A6DF; 中日韩统一汉字扩展B|CJK Unified Ideographs Extension B
 2A700..2B73F; 中日韩统一汉字扩展C|CJK Unified Ideographs Extension C
