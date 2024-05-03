@@ -21,15 +21,19 @@ https://www.bilibili.com/video/BV1o94y177BM/
 ### 如果你是普通用户请直接 [点这里](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest) 或到 [releases](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest) 界面 直接下载配置好的应用
 
 ## 软件授权
-本项目基于 SIL Open Font License 修改、补充和发布。详见[授权文件](LICENSE)，您可以：
+本项目基于 Apache License 2.0 版本发布。详见[授权文件](LICENSE)，您可以:
 
-- 免费使用，包括商用，无需付费、告知或标明原作者。
-- 自由分享项目文件，并将其安装在任何软件或设备中。
-- 在此基础上进行修改或二次创作，但二次修改的作品严禁再使用「Unicode-Flash-Mob」这样的名称，二次修改过后的版本亦须以 SIL Open Font License 发表。
+- 自由使用、复制、修改、分发本项目,包括商用,无需付费、告知或标明原作者。
+- 自由将项目文件安装在任何软件或设备中。
+- 在此基础上进行二次创作,修改后的作品也可以以 Apache License 2.0 发表。
 
-但凡有任何个人、企业、团队等使用、复制、修改、分发本项目，或对本项目的软件进行任何符合 SIL Open Font License 规定的行为，使用、下载或行使合约规定权利之接受方，即默认视为同意遵守 SIL Open Font License 的一切规定。
+但有以下要求:
 
-严禁任何个人、企业、团队等对该字体文件进行倒卖兜售（包括但不限于将项目文件单独售卖，与其他文件进行捆绑售卖、需付费办理特殊权限才可使用等行为），如您是付费获得的此项目，请立刻对其进行举报，必要时可协助相关司法机关。
+1. 您必须在任何副本或重大修改的文件中包含原始版权声明和本许可声明。
+2. 如果您修改了代码,必须在修改的文件中加注明显的"由此文件衍生"声明。
+3. 在任何发布的二次创作作品中,不得使用「Unicode-Flash-Mob」名称或版权持有人的名称来认可或推广衍生作品,除非获得事先书面许可。
+
+总之,只要遵守 Apache License 2.0 的要求,任何个人或组织都可以自由使用、修改和分发本项目。严禁任何倒卖或非法商业行为。如有违反,请立即举报,我们将保留追究法律责任的权利。
 
 
 ## 扩展
@@ -39,6 +43,9 @@ https://www.bilibili.com/video/BV1o94y177BM/
 
 ## 说明
 此项目给普通用户的版本使用混合编译，即pyinstaller和nuitka混合编译
+
+<details>
+<summary>关于第三方库与编译exe代码</summary>
 
 如果你要直接运行或修改源代码后运行，请安装以下第三方库
 
@@ -89,7 +96,30 @@ nuitka --standalone --onefile 生成mp4文件.py
 ```
 其中生成 `png（xxxx）.py` 可选用`pyinstaller库` 和 `nuitka库`编译exe
 
+</details>
 
+<details>
+<summary>关于 <code>生成图片时出现错误：raster overflow</code> 的解决方案</summary>
+
+### "raster overflow"错误可能是因为图像的尺寸过大或者Unicode字符过于复杂导致的内存溢出问题。
+### 下面是一些解决方案:
+1. 调整图片尺寸:
+   - 你可以尝试减小图像的尺寸,例如将 `image_size` 从 `(1920, 1080)` 调整为 `(1280, 720)` 或更小的尺寸。较小的图像尺寸可以减少内存占用,从而避免 raster overflow 的问题。
+
+2. 优化字体大小:
+   - 你可以尝试减小 `middle_font_size` 的值,从而减少每个Unicode字符所占用的内存空间。适当调小字体大小可能会有助于解决内存溢出问题。
+3. 使用低内存的图像格式:
+   - 尝试使用 PNG 以外的图像格式,例如 JPEG。JPEG 格式通常比 PNG 格式占用更少的内存,这可能有助于解决 raster overflow 的问题。
+4. 分批处理Unicode字符:
+   - 你可以考虑将 Unicode.txt 文件按照一定的规则拆分成多个小文件,然后分批次生成图片。这样可以减小单次生成图片时的内存占用,从而避免内存溢出。
+5. 使用更强大的硬件:
+   - 如果以上方法都无法解决问题,你可以尝试使用更强大的硬件,如拥有更多内存的服务器或工作站。这可以提高系统的内存承载能力,减少 raster overflow 的发生。
+
+在尝试这些方法时,请务必做好充分的测试和评估,确保能够有效解决问题,并且不会对程序的其他功能产生不利影响。如果仍无法解决,你可以考虑寻求专业人士的帮助。
+
+</details>
+
+<!--
 ## 题外话
 项目制作难度较大，制作时间有点长，若愿意支持，在此致以诚挚感谢！您的捐助可以帮助此项目以更好发展。况且本人还是初中生，要攒学费。
 
@@ -103,9 +133,10 @@ nuitka --standalone --onefile 生成mp4文件.py
 - 所有捐助资金均会逐一记录，并将全部用于该项目的技术支持等开销，不会被私用。
 - 上文所叙述的捐赠方法仅适用于中国大陆的用户。捐款前请务必仔细确付款账户（用户名：Losketch，姓名：**乐。如用户名有改动，则第一时间会做出更正），我们无法承担您受骗的损失。
 ![Image text](https://github.com/Losketch/Unicode-Flash-Mob/blob/main/main/background/wxzf.png)
+-->
 
 ## 联系方式
 - GitHub: https://github.com/Losketch
 - QQ 邮箱: 762270064@qq.com
 - QQ: 762270064
-- Gmail: chenlelei644@gmail.com
+- Gmail: chenlelei644@gmail.com(长期不在线)
