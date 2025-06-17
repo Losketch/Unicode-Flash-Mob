@@ -1,0 +1,8 @@
+[package]
+name = "unicode_flash_mob"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+fontdb = "0.23.0"
