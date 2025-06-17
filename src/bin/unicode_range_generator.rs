@@ -40,7 +40,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .get_matches();
 
-    // 解析文件名
     let filename = matches.get_one::<String>("file").unwrap();
     let filename = if filename.to_lowercase().ends_with(".txt") {
         filename.clone()
@@ -49,7 +48,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let file_path = PathBuf::from(&filename);
 
-    // 解析范围
     let start_str = matches.get_one::<String>("start").unwrap();
     let end_str = matches.get_one::<String>("end").unwrap();
 
@@ -63,7 +61,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("起始值不能大于结束值".into());
     }
 
-    // 生成文件
     write_to_file(&file_path, start, end)?;
 
     println!("文件已生成: {}", filename);
