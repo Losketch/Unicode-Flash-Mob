@@ -35,11 +35,11 @@ fn download_file(url: &str, dest_path: &Path) -> io::Result<()> {
 fn main() -> io::Result<()> {
     let targets = [
         (
-            "https://unicode.org/Public/UNIDATA/UnicodeData.txt",
+            "https://unicode.org/Public/draft/ucd/UnicodeData.txt",
             "UnicodeData.txt",
         ),
         (
-            "https://unicode.org/Public/UNIDATA/Blocks.txt",
+            "https://unicode.org/Public/draft/ucd/Blocks.txt",
             "UnicodeBlocks.txt",
         ),
     ];

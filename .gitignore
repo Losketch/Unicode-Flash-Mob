@@ -1,10 +1,13 @@
 
 target
-Cargo.lock
 
 main/DUTM.m4a
+main/DecipherUnicode*.txt
 main/font.ttf
+main/settings.ini
 main/Unicode.txt
 
+main/ffmpeg/
+main/python/
 main/output/
 main/png/

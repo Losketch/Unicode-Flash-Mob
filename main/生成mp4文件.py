@@ -5,7 +5,8 @@ import re
 import sys
 import configparser
 
-os.chdir(os.path.dirname(sys.argv[0]))
+base_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(base_dir)
 
 def find_ffmpeg():
     ffmpeg_exe = "ffmpeg.exe" if platform.system() == "Windows" else "ffmpeg"
@@ -29,7 +30,6 @@ def find_ffmpeg():
 
     print(f"\n未找到 {ffmpeg_exe} 文件")
     print("请确保已安装 ffmpeg 并添加到环境变量，或将 ffmpeg 放在当前目录的 ffmpeg/bin/ 文件夹中")
-    input("按任意键退出...")
     sys.exit(1)
 
 def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
@@ -155,9 +155,6 @@ def load_settings(config_file='settings.ini'):
         return None
 
 def main():
-    os_type = platform.system()
-    print(f"操作系统: {os_type}")
-    
     script_path = os.path.realpath(__file__)
     print(f"脚本路径: {script_path}")
     print(f"当前工作目录: {os.getcwd()}")
@@ -168,7 +165,6 @@ def main():
     
     if not os.path.exists(input_folder):
         print(f"图片文件夹不存在：{input_folder}")
-        input("按任意键退出...")
         sys.exit(1)
 
     output_dir = 'output'
@@ -184,7 +180,6 @@ def main():
     image_files = [f for f in os.listdir(input_folder) if f.lower().endswith('.png')]
     if not image_files:
         print("在图片文件夹中未找到PNG文件")
-        input("按任意键退出...")
         sys.exit(1)
         
     print(f"找到 {len(image_files)} 个PNG文件")
@@ -204,7 +199,6 @@ def main():
 
     if not valid_files:
         print("没有找到符合命名规则的PNG文件")
-        input("按任意键退出...")
         sys.exit(1)
 
     valid_files.sort(key=lambda x: x[0])
@@ -240,7 +234,6 @@ def main():
         print("程序完成，未添加音乐")
 
     print(f"\n视频已保存为: {output_file}")
-    input("按任意键退出...")
 
 if __name__ == "__main__":
     main()

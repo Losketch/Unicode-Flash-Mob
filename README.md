@@ -2,170 +2,110 @@
   
 # Unicode-Flash-Mob（Unicode快闪视频生成器）
 [![视频介绍](https://img.shields.io/badge/%E8%A7%86%E9%A2%91%E4%BB%8B%E7%BB%8D-00a1d6?logo=Bilibili&logoColor=ffffff)](https://www.bilibili.com/video/BV1o94y177BM)
-[![下载](https://img.shields.io/github/release/Losketch/Unicode-Flash-Mob?color=critical&label=发行版下载&logo=data:image/png;base64,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)](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest)
-[![总下载](https://img.shields.io/github/downloads/Losketch/Unicode-Flash-Mob/total.svg?color=critical&label=总下载量&logo=data:image/png;base64,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)](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest)
-[![星标](https://img.shields.io/github/stars/Losketch/Unicode-Flash-Mob?label=星标数&color=critical&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAdCAYAAAC5UQwxAAADKUlEQVRIib2WX0iTURTAz737tpWEissM6c9cOUUkCqmHpYEtfAiFyl4yCoQefOmhHozAECGweskMw+hRitRQsD8ULSl0H1mUIDRr5myVpgvJQvP7f+P7Nsfc9s3dMTpw4ePee87vnHvvOeeD/y2IEEKNFOYHMom8lGHedGKWVjcloDJu7QLxRz7exTtpdRlqmurlot+KAHAqutRKsu/YeaQABgIge/e30upTR2hY6K8FEzhADfE3q9DqU0Uo+uoaQFCpQU01UmXS2UJjg+7RjCI3EHBoQFUIABFhGO0lFcmaSDpC6cuZ01p0kZcQilL21TQmayfpCMkoGkIA5TEuKlqkLL/dVWG2ONe80xggH7iXj4XPdiz5rUicKgDBZ8OC36Y+EsDggGj/1HlZ+2KJectXhSnwEaN1Ckw2n8zs8JrzTn1ftZ2bbjeb5i42gwHKkLy0QVNWwBE2hiNGIlEixopTGFjtvg0Zf4kEb+W8C1e1CCVP2XXm1/t9kAGO1NI5gajwJWBJVqEXlXrrNfNMybtzYu6RXuCBTTMOgAOW5FYOqjCIfKVGe3+baDnaC8tphC4Dq+Q4Xcg+eGllatUBGgv72kRLbXdaoBrskAvbXc2R0zE3Zix80C5Zjgeh9I0kAlb1DNufN0cv6eahOFnXYFzoPgmMUk4FE9Gwkl39EO8cuBZvOWHiK2NZj7H053C4lK0lMgDBxpdot1CptzNhEmCymKnlYrKiWiNiwg6kC+R/9uWAqGCqvEQASAIszHYWUwOx4CkNVxwaIeBAwoSdGogEb6wSClUOtWvwoe/oI1cbszBeqmdX97yR4C2KcYcL1kcpt/4O4PUcE7h1VqudplBJDDmAhU9F9EDxY3EYKGiFmZWzK11SXlOLOftgsA1t67gvT9Q0GhYeaUcJ5tDfgOS36tkFNS3iDWUUhsgbIOQ1uGXPnhtcoGej3l5u/sk6yeNoJSPgJiNAyDtwc/MvcLy98Q3MdJSQIXArY9YubqbTrgeKHnzgbr78oeQ2eQVu8VtTVbw9cRNfnL58APFzmxnbzR7do0kg4lRjNWGwZNp65Wkq+ukTAPgHIIGzcZjmG+EAAAAASUVORK5CYII=
-)](https://github.com/Losketch/Unicode-Flash-Mob)
+[![最新版本](https://img.shields.io/github/release/Losketch/Unicode-Flash-Mob?color=critical&label=最新版本&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjMgMyAxOCAxOCI+PHBhdGggc3R5bGU9ImZpbGw6bm9uZTtzdHJva2U6I0U2NjtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2Utd2lkdGg6MiIgZD0iTTEwIDdhMiAyIDAgMDEyLTJoNmEyIDIgMCAwMTIgMnYxMGEyIDIgMCAwMS0yIDJoLTZhMiAyIDAgMDEtMi0yek03IDd2MTBNNCA4djgiLz48L3N2Zz4=)](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest)
+[![总下载量](https://img.shields.io/github/downloads/Losketch/Unicode-Flash-Mob/total.svg?color=critical&label=总下载量&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA3LjQyIDcuNDIiPjxjaXJjbGUgY3g9IjMuNyIgY3k9IjMuNyIgcj0iMy43IiBmaWxsPSIjZDY2Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTQuMiAxLjZjLjguMiAxLjQuOSAxLjQgMS42LjQgMCAuOC41LjggMS4xUzYgNS40IDUuNiA1LjRIMmMtLjQgMC0uOC0uNS0uOC0xLjFzLjMtMS4xLjgtMS4xYzAtLjcuNi0xLjQgMS40LTEuNlYzLjJIMi42TDMuOCA0LjcgNC45IDMuMkg0LjJaIi8+PC9zdmc+)](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest)
+[![星标](https://img.shields.io/github/stars/Losketch/Unicode-Flash-Mob?label=星标数&color=critical&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA4IDgiPjxwYXRoIGZpbGw9IiNmZDAiIGQ9Im00IDAgMSAyLjYgMi43LjMtMi4xIDEuOC44IDNMNCA2LjQgMS42IDcuN2wuOC0zTC4zIDIuOSAzIDIuNnoiLz48L3N2Zz4=)](https://github.com/Losketch/Unicode-Flash-Mob)
 [![License](https://img.shields.io/static/v1?label=使用协议&message=apache+license+2.0&color=critical&logo=creative%20commons)](https://github.com/Losketch/Unicode-Flash-Mob/blob/main/LICENSE)
 </div>
 
-## 使用教程
-https://www.bilibili.com/video/BV1o94y177BM/
-> [!IMPORTANT]
-> **此视频教程使用的是最初版本，操作方式可能不同，谨慎对待！**
-> - 第二步方法一的方式可能会导致生成的图片和视频有豆腐块，可以在png目录下手动删除豆腐块，再合并视频
-> - 视频展示的只是最佳情况下的运行效率，图片也没有生成完，只生成了两百​多个图​片就生成视频。
-> - 实际一个字体大概有3千多～​6553​5个字符（上限），多个字体那更多，全部上限是1114111个字符
-> - 字体越多、 字符越多、生成图片和视频就 越久/费时间。​
+---
 
-### 如果你是普通用户请直接 [点这里](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest) 或到 [releases](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest) 界面 直接下载配置好的应用
+## 简介
 
-## 软件授权
-本项目基于 Apache License 2.0 版本发布。详见[授权文件](LICENSE)，您可以:
+Unicode-Flash-Mob 是一款将字体中的 Unicode 字符自动排布并渲染成 PNG、再合成为快闪视频的工具。支持自定义背景、布局。
 
-- 自由使用、复制、修改、分发本项目,包括商用,无需付费、告知或标明原作者。
-- 自由将项目文件安装在任何软件或设备中。
-- 在此基础上进行二次创作,修改后的作品也可以以 Apache License 2.0 发表。
+---
 
-但有以下要求:
+## 快速上手
 
-1. 您必须在任何副本或重大修改的文件中包含原始版权声明和本许可声明。
-2. 如果您修改了代码,必须在修改的文件中加注明显的"由此文件衍生"声明。
-3. 在任何发布的二次创作作品中,不得使用「Unicode-Flash-Mob」名称或版权持有人的名称来认可或推广衍生作品,除非获得事先书面许可。
+### 1. 下载预编译版本
 
-总之,只要遵守 Apache License 2.0 的要求,任何个人或组织都可以自由使用、修改和分发本项目。严禁任何倒卖或非法商业行为。如有违反,请立即举报,我们将保留追究法律责任的权利。
+前往 Releases 页面直接下载 Windows 可执行文件：  
+👉 https://github.com/Losketch/Unicode-Flash-Mob/releases/latest
 
+### 2. 源码运行或二次开发
 
-## 扩展
-其实还可以在视频的基础上进行更多的扩展，视频展示的只是基础功能，不过就是要费点脑子（
+克隆仓库并安装依赖：
 
-你可以通过把多个字体提取和重命名成font.ttf，然后生成类似整个unicode字符都有的png文件夹。也就是一个字体生成完的图片，不用生成视频，直接把第二个字体继续生成图片……以此类推。
-
-<details>
-<summary>什么，你还要更多？</summary>
-
-1. **多字体支持**
-   - 在原有的基础上,可以支持将多个字体文件合并生成视频或图片,让最终效果更加丰富多彩。
-   - 可以自行修改源码,让你能够轻松地添加和管理多个字体文件。
-
-2. **自定义背景和布局**
-   - 除了默认的背景变化和布局,可以自定义背景图片或颜色,以及字符在画布上的排布方式。
-
-3. **视频特效和动画**
-   - 在生成视频后,你添加一些特殊的视觉特效,如字符闪烁、渐变、旋转等动画效果。
-   - 可以提供一些预设的特效样式。
-
-4. **输出格式扩展**
-   - 除了生成视频和图片,可以考虑支持其他输出格式,如 GIF、HTML 页面等。
-   - 根据不同场景的需求,提供更加丰富的输出选项。
-
-总的来说,扩展部分应该围绕提高用户体验、增强功能性和扩展性等方向进行优化和完善。
-</details>
-
-
-## 说明
-此项目给普通用户的版本使用混合编译，即pyinstaller和nuitka混合编译
-
-<details>
-<summary>关于第三方库与编译exe代码</summary>
-
-如果你要直接运行或修改源代码后运行，请安装以下第三方库
-
-`更新UnicodeDataBlocks.py` 需要安装以下库
-```
-pip install requests
+```bash
+git clone https://github.com/Losketch/Unicode-Flash-Mob.git
+cd Unicode-Flash-Mob
+cargo build --releases
+pip install Pillow tqdm
 ```
 
-`把字体文件托到此处提取支持显示字符列表.py` 需要安装以下库
-```
-pip install fonttools
-```
+#### 生成 PNG
 
-`生成png（背景变化）.py` 和 `生成png（背景不变）.py`需要安装以下库
-```
-pip install Pillow
-pip install tqdm
-```
-### 其他部分
-`获取图像RGB颜色值.py` 和 `验证获取图像RGB颜色值是否正确.py`需要安装以下库
-```
-pip install Pillow
-pip install tkinterdnd2
+- `生成png（背景变化）.py`  
+- `生成png（背景不变）.py`
+
+```bash
+python "生成png（背景变化）.py"   # 或
+python "生成png（背景不变）.py"
 ```
 
-## 编译
-此项目使用混合编译成exe文件，编译前需要安装 `pyinstaller库` 和 `nuitka库`
+#### 合成视频
+
+```bash
+python 生成mp4文件.py
 ```
-pip install pyinstaller
-pip install nuitka
-```
 
-### 编译代码如下
-``` python
-pyinstaller --onefile 把字体文件托到此处提取支持显示字符列表.py
-pyinstaller --onefile --icon="path/输入x~x的u码.ico" 输入x~x的u码.py
-pyinstaller --onefile 将Unicode.txt选择生成图片左下角说明.py
-nuitka --standalone --onefile 将Unicode.txt选择生成图片左下角说明.py
-nuitka --standalone --onefile "创建&重置settings.ini配置文件.py"
+---
 
-pyinstaller --onefile 生成png（背景变化）.py
-pyinstaller --onefile 生成png（背景不变）.py
-或
-nuitka --follow-imports --standalone --onefile --include-package=PIL --include-package=tqdm 生成png（背景变化）.py
-nuitka --follow-imports --standalone --onefile --include-package=PIL --include-package=tqdm 生成png（背景不变）.py
+## 在 Windows 上使用「内存文件系统」加速
 
-nuitka --standalone --onefile 生成mp4文件.py
-```
-其中生成 `png（xxxx）.py` 可选用`pyinstaller库` 和 `nuitka库`编译exe
+如果你担心大量小文件写入对硬盘造成 IO 压力或减少 SSD 寿命，推荐在 Windows 上挂载一个 RAM 磁盘：
 
-</details>
+1. 安装 ImDisk Toolkit（免费开源）  
+   下载地址：https://sourceforge.net/projects/imdisk-toolkit/
 
-<details>
-<summary>关于 <code>生成图片时出现错误：raster overflow</code> 的解决方案</summary>
+2. 以管理员身份运行 CMD，创建 1 GB RAM 磁盘并挂载到 `R:`：
 
-### "raster overflow"错误可能是因为图像的尺寸过大或者Unicode字符过于复杂导致的内存溢出问题。
-### 下面是一些解决方案:
-<strong>1. 调整图片尺寸:</strong>
-   - 你可以尝试减小图像的尺寸,例如将 `image_size` 从 `(1920, 1080)` 调整为 `(1280, 720)` 或更小的尺寸。较小的图像尺寸可以减少内存占用,从而避免 raster overflow 的问题。
+   ```bat
+   imdisk -a -t vm -s 1G -m R: -p "/fs:ntfs /q /y"
+   ```
 
-<strong>2. 优化字体大小:</strong>
-   - 你可以尝试减小 `middle_font_size` 的值,从而减少每个Unicode字符所占用的内存空间。适当调小字体大小可能会有助于解决内存溢出问题。
+3. 将脚本都放置在磁盘 `R:`中。
 
-<strong>3. 使用低内存的图像格式:</strong>
-   - 尝试使用 PNG 以外的图像格式,例如 JPEG。JPEG 格式通常比 PNG 格式占用更少的内存,这可能有助于解决 raster overflow 的问题。
+4. 脚本执行完毕后，手动卸载并释放内存：
 
-<strong>4. 分批处理Unicode字符:</strong>
-   - 你可以考虑将 Unicode.txt 文件按照一定的规则拆分成多个小文件,然后分批次生成图片。这样可以减小单次生成图片时的内存占用,从而避免内存溢出。
+   ```bat
+   imdisk -D -m R:
+   ```
 
-<strong>5. 使用更强大的硬件:</strong>
-   - 如果以上方法都无法解决问题,你可以尝试使用更强大的硬件,如拥有更多内存的服务器或工作站。这可以提高系统的内存承载能力,减少 raster overflow 的发生。
+> **注意**：RAM 磁盘的数据完全驻留内存，关机或重启后所有文件都会丢失，请务必在卸载前将最终结果备份到物理盘。
 
-在尝试这些方法时,请务必做好充分的测试和评估,确保能够有效解决问题,并且不会对程序的其他功能产生不利影响。如果仍无法解决,你可以考虑寻求专业人士的帮助。
+---
 
-</details>
+## 常见问题
 
-<!--
-## 题外话
-项目制作难度较大，制作时间有点长，若愿意支持，在此致以诚挚感谢！您的捐助可以帮助此项目以更好发展。况且本人还是初中生，要攒学费。
+### raster overflow
 
-[大量项目被骂停更！做开源有多难？不爱也请尊重！](https://www.bilibili.com/video/BV1tT4y1p7Pe/)
+此错误多因单张图过大或字符量过多导致内存占用过高。可尝试：
 
-在您捐助之前请务必注意以下几点：
-- 捐款前请务必仔细确付款账户（微信：Losketch。如用户名有改动，则第一时间会做出更正），我们无法承担您受骗的损失。
-- 目前只有这一个页面是正式的受捐页面。如果您在其它地方看到此项目的捐款链接，请立刻对其进行举报，必要时可协助相关司法机关。
-- 您向本项目捐助，即默认表明您赞同我们的理念，并愿意以此种方式支持我们的发展。捐助者提出的意见会被认真考虑，但捐款再多也没有权利以个人意志改变本项目的宗旨和公益性质。
-- 捐助后如愿意，可留言写明您的捐款时间和金额，感谢您对本项目的支持。
-- 所有捐助资金均会逐一记录，并将全部用于该项目的技术支持等开销，不会被私用。
-- 上文所叙述的捐赠方法仅适用于中国大陆的用户。捐款前请务必仔细确付款账户（用户名：Losketch，姓名：**乐。如用户名有改动，则第一时间会做出更正），我们无法承担您受骗的损失。
-![Image text](https://github.com/Losketch/Unicode-Flash-Mob/blob/main/main/background/wxzf.png)
--->
+1. 缩小输出分辨率（如由 1920×1080 调至 1280×720）  
+2. 调整字体大小 `middle_font_size`  
+3. 分批处理 Unicode.txt（拆分成小文件）  
+4. 如果实在无法避免，升级至更大内存的机器
+
+---
+
+## 扩展 & 二次创作
+
+1. **自定义背景 & 布局**  
+   - 背景图或纯色背景、字符排布位置等都可自定义。
+
+2. **视频特效 & 动画**  
+   - 合成完视频后，可用 FFmpeg、After Effects 等工具添加闪烁、渐变、旋转等特效。
+
+---
+
+## 授权许可
+
+本项目基于 Apache License 2.0 发布，详见 [LICENSE](LICENSE)。  
+您可自由使用、修改、分发（包括商用），但须保留原始版权声明和许可文本，并在修改后文件中注明“由此文件衍生”。
+
+---
 
 ## 联系方式
-- GitHub: https://github.com/Losketch
-- QQ 邮箱: 762270064@qq.com
-- QQ: 762270064
-- Gmail: chenlelei644@gmail.com(长期不在线)
-
-## 其他项目
-- [Unicode快闪生成器](https://gitee.com/golllllll/unicode-flash-generator "正经人谁用gitee啊")
-- [U快闪生成C++](https://music.163.com/#/mv?id=5365570 "真正的大佬")
+- QQ 邮箱: 𝚕𝚘𝚜𝚔𝚎𝚝𝚌𝚑@𝚚𝚚.𝚌𝚘𝚖

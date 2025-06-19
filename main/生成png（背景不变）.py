@@ -1,121 +1,224 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
+import time
+import hashlib
+import logging
+import configparser
+from dataclasses import dataclass
+from pathlib import Path
+from threading import Lock, Thread
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
+
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor
-import time
-import configparser
 
-# 创建文件目录下新建一个png的目录
-os.makedirs("png", exist_ok=True)
 
-# 获取Unicode.txt的路径
-unicode_txt = os.path.join(os.getcwd(), "Unicode.txt")
+@dataclass
+class Config:
+    unicode_file: Path
+    output_dir: Path
+    font_files: list[Path]
+    bottom_font_file: Path
+    middle_font_size: int
+    bottom_font_size: int
+    text_position: tuple[int, int]
+    middle_font_color: tuple[int, int, int, int]
+    image_size: tuple[int, int]
+    background_color: tuple[int, int, int, int]
 
-# 读取Unicode.txt文件内容
-with open(unicode_txt, "r", encoding="utf-8") as f:
-    unicode_lines = f.readlines()
+    @classmethod
+    def load(cls, ini_path: Path) -> 'Config':
+        parser = configparser.ConfigParser()
+        parser.read(ini_path, encoding='utf-8')
 
-# 读取settings.ini文件
-config = configparser.ConfigParser()
-config.read('settings.ini')
+        s = parser['Settings']
+        def get_tuple(key, fallback, typ=int):
+            return tuple(typ(x) for x in s.get(key, fallback).split(','))
 
-# 设置字体路径和字体大小   bak:(bottom_font_size = 32)
-font_files = [
-    os.path.join(os.getcwd(), "font.ttf")
-]
-# 获取middle_font_size的值，默认为512
-middle_font_size = int(config.get('Settings', 'middle_font_size', fallback=512))
-bottom_font_path = os.path.join(os.getcwd(), "PressStart2P-1.ttf")
-bottom_font_size = int(config.get('Settings', 'bottom_font_size', fallback=19))
+        return Config(
+            unicode_file=Path.cwd() / 'Unicode.txt',
+            output_dir=Path.cwd() / 'png',
+            font_files=[Path.cwd() / 'font.ttf'],
+            bottom_font_file=Path.cwd() / 'PressStart2P-1.ttf',
+            middle_font_size=int(s.get('middle_font_size', '512')),
+            bottom_font_size=int(s.get('bottom_font_size', '19')),
+            text_position=(
+                int(s.get('text_position_x', '0')),
+                int(s.get('text_position_y', '0'))
+            ),
+            middle_font_color=get_tuple('middle_font_color', '255,255,255,255'),
+            image_size=(1920, 1080),
+            background_color=get_tuple('background_color', '0,0,0,255')
+        )
 
-# 获取text_height的值，默认为1000
-text_height = int(config.get('Settings', 'text_height', fallback=1000))
 
-# 获取 text_position_x 和 text_position_y 的值，默认为 0
-text_position_x = int(config.get('Settings', 'text_position_x', fallback=0))
-text_position_y = int(config.get('Settings', 'text_position_y', fallback=0))
+@dataclass
+class UnicodeEntry:
+    font_path: Path
+    code_str: str
+    description: str
 
-# 获取中央字符颜色，默认为白色
-middle_font_color = tuple(map(int, config.get('Settings', 'middle_font_color', fallback='255,255,255,255').split(',')))
 
-# 获取背景颜色，默认为黑色
-background_color = tuple(map(int, config.get('Settings', 'background_color', fallback='0,0,0,255').split(',')))
+def load_unicode_entries(path: Path) -> list[UnicodeEntry]:
+    """
+    读取新的 Unicode.txt 格式，每行格式：
+      "font_path";"U+xxxx";"Description"
+    去除空行，拆分三段，去除两端引号后返回 UnicodeEntry 列表。
+    """
+    entries: list[UnicodeEntry] = []
+    for raw in path.read_text(encoding='utf-8').splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = [p.strip().strip('"') for p in line.split(';', 2)]
+        if len(parts) == 2:
+            parts.append('')
+        elif len(parts) != 3:
+            raise ValueError(f"行格式错误（期望 2 或 3 段，用 ; 分隔）: {line!r}")
+        font_path, code_str, desc = parts
+        entries.append(UnicodeEntry(Path(font_path), code_str, desc))
+    return entries
 
-# 设置图片的尺寸
-image_size = (1920, 1080)
 
-# 获取Unicode.txt文件的行数
-def get_unicode_lines():
-    with open("Unicode.txt", "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    return [line.strip() for line in lines]
+def setup_logging():
+    logging.basicConfig(
+        format='[%(asctime)s] %(levelname)s: %(message)s',
+        datefmt='%H:%M:%S',
+        level=logging.INFO
+    )
 
-# 获取Unicode.txt的行数
-unicode_lines = get_unicode_lines()
 
-# 创建进度条
-total_lines = len(unicode_lines)
-progress_bar = tqdm(total=total_lines, desc="生成图片进度", unit="行", ncols=80)
-
-# 定义生成图片的函数
-def generate_image(line_index):
+def generate_image_bytes(
+    entry: UnicodeEntry,
+    cfg: Config,
+    bottom_font: ImageFont.FreeTypeFont,
+    middle_font_cache: dict[Path, ImageFont.FreeTypeFont],
+    cache_lock: Lock
+) -> tuple[bytes, Path]:
+    """
+    生成图片并返回 PNG bytes 以及目标路径，写入线程负责落盘。
+    """
     try:
-        # 转换Unicode编码为字符
-        line = unicode_lines[line_index]
-        unicode_char = chr(int(line.split("-")[0][2:], 16))
+        char = chr(int(entry.code_str.strip()[2:], 16))
+    except:
+        raise ValueError(f"无效的 code_str: {entry.code_str!r}")
 
-        # 创建空白图像，使用用户定义的背景颜色
-        image = Image.new("RGBA", image_size, color=background_color)
+    # 新建背景
+    img = Image.new('RGBA', cfg.image_size, cfg.background_color)
+    draw = ImageDraw.Draw(img)
 
-        # 在图像中央绘制Unicode字符，使用用户定义的颜色
-        draw = ImageDraw.Draw(image)
+    # 中间字体（按顺序尝试加载支持的字体）
+    with cache_lock:
         middle_font = None
-        for font_file in font_files:
+        p = entry.font_path
+        if p not in middle_font_cache:
+            if not p.exists():
+                logging.warning(f"字体文件不存在: {p}，将使用备用字体")
             try:
-                middle_font = ImageFont.truetype(font_file, middle_font_size)
-                break
-            except OSError:
-                continue
+                middle_font_cache[p] = ImageFont.truetype(str(p), cfg.middle_font_size)
+            except OSError as e:
+                logging.warning(f"加载字体失败 `{p}`: {e}，将使用备用字体")
+                middle_font_cache[p] = None
+        if middle_font_cache[p]:
+            middle_font = middle_font_cache[p]
+        else:
+            # 退回到全局备用列表
+            for q in cfg.font_files:
+                if q not in middle_font_cache:
+                    try:
+                        middle_font_cache[q] = ImageFont.truetype(str(q), cfg.middle_font_size)
+                    except OSError:
+                        middle_font_cache[q] = None
+                if middle_font_cache[q]:
+                    middle_font = middle_font_cache[q]
+                    break
 
-        if middle_font is None:
-            # 如果所有字体均无法显示字符，则使用默认的替代字符
-            unicode_char = "Please check if there is a font file named “font.ttf” in the directory, paying attention to the case sensitivity.\nAlternatively, if you are unable to display a specific Unicode character, it could be due to the font you are using.\nYou may need to use a different font that supports the Unicode character you're trying to display."
+    if not middle_font:
+        char = "无法加载字体：" + char
+        middle_font = ImageFont.load_default()
 
-        # 获取文本的位置（x, y）
-        text_x, text_y, text_width, text_height = draw.textbbox((text_position_x, text_position_y), unicode_char, font=middle_font)
-        # 在图像中央绘制 Unicode 字符，使用用户定义的颜色
-        text_position = ((image_size[0] - text_width) // 2, (image_size[1] - text_height) // 4)
-        draw.text(text_position, unicode_char, fill=middle_font_color, font=middle_font)
+    bbox = draw.textbbox((0, 0), char, font=middle_font)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    pos_x = (cfg.image_size[0] - text_w) // 2 + cfg.text_position[0]
+    pos_y = (cfg.image_size[1] - text_h) // 4 + cfg.text_position[1]
+    draw.text((pos_x, pos_y), char, font=middle_font, fill=cfg.middle_font_color)
 
-        # 在图像左下角绘制当前生成的Unicode编码相同的Unicode.txt的整行内容
-        bottom_text = line.strip()
-        if "|" in bottom_text:
-            index = bottom_text.index("|")
-            modified_text = bottom_text[:index].replace("-", "\n") + bottom_text[index:].replace("|", "\n")
-            bottom_text = modified_text
-        bottom_font = ImageFont.truetype(bottom_font_path, bottom_font_size)
-        bottom_text_position = (100, image_size[1] - bottom_font_size - 125)
-        draw.text(bottom_text_position, bottom_text, fill="white", font=bottom_font)
+    # 底部文字
+    if entry.description:
+        bottom_text = f"{entry.code_str}\n{entry.description}"
+    else:
+        bottom_text = entry.code_str
+    draw.multiline_text(
+        (100, cfg.image_size[1] - cfg.bottom_font_size - 125),
+        bottom_text,
+        font=bottom_font,
+        fill=(255, 255, 255, 255)
+    )
 
-        # 保存生成的图片
-        image.save(os.path.join("png", f"image_{line.split('-')[0]}.png"))
+    # 保存
+    buf = BytesIO()
+    img.save(buf, format='PNG', compress_level=1)  # compress_level=1 较快
+    data = buf.getvalue()
+    out_path = cfg.output_dir / f"image_{entry.code_str}.png"
+    return data, out_path
 
-        # 更新进度条
-        progress_bar.update(1)
-    except Exception as e:
-        print(f"生成图片时出现错误：{e}")
+def writer_thread_fn(q: Queue):
+    """单线程顺序写入磁盘，减少 HDD 随机寻道。"""
+    while True:
+        item = q.get()
+        if item is None:
+            q.task_done()
+            break
+        data, out_path = item
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, 'wb') as f:
+            f.write(data)
+        q.task_done()
 
-# 使用多线程生成图片
-with ThreadPoolExecutor() as executor:
-    start_time = time.time()
-    executor.map(generate_image, range(total_lines))
+def main():
+    setup_logging()
+    cfg = Config.load(Path('settings.ini'))
+    cfg.output_dir.mkdir(exist_ok=True)
 
-# 关闭进度条
-progress_bar.close()
+    entries = load_unicode_entries(cfg.unicode_file)
+    total = len(entries)
+    logging.info(f"共读取 {total} 行，将开始生成图片。")
 
-# 计算平均帧数
-total_time = time.time() - start_time
-average_fps = total_lines / total_time
+    bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
+    middle_font_cache: dict[Path, ImageFont.FreeTypeFont | None] = {}
 
-print("图片生成完成！")
-print(f"平均每秒生成帧数：{average_fps:.2f}")
+    # 启动写入线程
+    q: Queue = Queue(maxsize=100)
+    writer = Thread(target=writer_thread_fn, args=(q,), daemon=True)
+    writer.start()
+
+    cache_lock = Lock()
+    start = time.time()
+    with ThreadPoolExecutor(max_workers=4) as pool, tqdm(total=total, desc="生成图片", unit="项") as bar:
+        futures = [
+            pool.submit(generate_image_bytes, entry, cfg, bottom_font, middle_font_cache, cache_lock)
+            for entry in entries
+        ]
+        for fut in as_completed(futures):
+            try:
+                data, path = fut.result()
+                q.put((data, path))
+            except Exception as e:
+                logging.error(f"生成行失败: {e}")
+            finally:
+                bar.update(1)
+
+    q.join()
+    q.put(None)
+    writer.join()
+
+    elapsed = time.time() - start
+    fps = total / elapsed if elapsed > 0 else float('inf')
+    logging.info(f"图片生成完成，用时 {elapsed:.2f}s，平均 {fps:.2f} 张/秒。")
+
+if __name__ == '__main__':
+    main()

@@ -9,3 +9,16 @@ reqwest = { version = "0.11", features = ["blocking", "rustls-tls"] }
 regex = "1"
 anyhow = "1"
 ttf-parser = "0.25"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+split-debuginfo = 'off'
+debug-assertions = false
+overflow-checks = false
+incremental = false
+rpath = false
