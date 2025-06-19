@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use regex::Regex;
 use std::{
@@ -30,7 +30,10 @@ enum Commands {
         #[arg(short, long, value_name = "OUT_FILE")]
         out: Option<PathBuf>,
     },
-    Replace,
+    Replace {
+        #[arg(value_name = "MODE")]
+        mode: Option<u8>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -39,8 +42,8 @@ fn main() -> Result<()> {
         Commands::Extract { font_files, out } => {
             extract_unicode_from_fonts(&font_files, out.as_deref())?;
         }
-        Commands::Replace => {
-            replace_unicode_interactive()?;
+        Commands::Replace { mode } => {
+            replace_unicode(mode)?;
         }
     }
     Ok(())
@@ -48,7 +51,7 @@ fn main() -> Result<()> {
 
 fn extract_unicode_from_fonts(font_paths: &[PathBuf], out_file: Option<&Path>) -> Result<()> {
     let out_path = out_file
-        .map(|p: &Path| p.to_path_buf())
+        .map(ToOwned::to_owned)
         .unwrap_or_else(|| PathBuf::from("combined_unicode_list.txt"));
 
     let file = File::create(&out_path)
@@ -83,30 +86,38 @@ fn extract_unicode_from_fonts(font_paths: &[PathBuf], out_file: Option<&Path>) -
     Ok(())
 }
 
-fn replace_unicode_interactive() -> Result<()> {
-    let option = loop {
-        println!(
-            "\n请选择生成图片左下角说明文件：\n\
-             [1]  使用 `{}` 各个字符区块\n\
-             [2]  使用 `{}` 每个字符的详细信息\n\
-             你选择：",
-            BLOCKS_FILE, DATA_FILE
-        );
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .context("读取用户输入失败")?;
-        match input.trim() {
-            "1" => break "1".to_string(),
-            "2" => break "2".to_string(),
-            _ => {
-                println!("输入非法，请输入 1 或 2。");
-                continue;
+fn replace_unicode(mode: Option<u8>) -> Result<()> {
+    let choice = if let Some(m) = mode {
+        match m {
+            1 => "1".to_string(),
+            2 => "2".to_string(),
+            _ => bail!("无效模式：{}，仅支持 1 或 2", m),
+        }
+    } else {
+        loop {
+            println!(
+                "\n请选择生成图片左下角说明文件：\n\
+                 [1]  使用 `{}` 各个字符区块\n\
+                 [2]  使用 `{}` 每个字符的详细信息\n\
+                 你选择：",
+                BLOCKS_FILE, DATA_FILE
+            );
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .context("读取用户输入失败")?;
+            match input.trim() {
+                "1" => break "1".to_string(),
+                "2" => break "2".to_string(),
+                _ => {
+                    println!("输入非法，请输入 1 或 2。");
+                    continue;
+                }
             }
         }
     };
 
-    let unicode_file = if option == "1" {
+    let unicode_file = if choice == "1" {
         BLOCKS_FILE
     } else {
         DATA_FILE
@@ -132,7 +143,7 @@ fn read_unicode_file(path: &str) -> Result<HashMap<String, String>> {
         let trimmed = line.trim();
         if let Some(pos) = trimmed.find('-') {
             let code = trimmed[..pos].to_string();
-            let desc = trimmed[pos+1..].to_string();
+            let desc = trimmed[pos + 1..].to_string();
             map.insert(code, desc);
         }
     }

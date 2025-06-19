@@ -20,8 +20,10 @@ Unicode-Flash-Mob 是一款将字体中的 Unicode 字符自动排布并渲染�
 
 ### 1. 下载预编译版本
 
-前往 Releases 页面直接下载 Windows 可执行文件：  
+1. 前往 Releases 页面直接下载 Windows 可执行文件：  
 👉 https://github.com/Losketch/Unicode-Flash-Mob/releases/latest
+
+2. 鼠标右键资源管理器中存放脚本的目录的空白处，点击 `在此次打开 PowerShell 窗口(S)`，输入 `./run.ps1` 并回车运行。
 
 ### 2. 源码运行或二次开发
 
