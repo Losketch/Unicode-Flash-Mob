@@ -65,20 +65,47 @@ if (Confirm-Proceed "是否 重置配置设置 并生成 DecipherUnicode*.txt �
 Write-Host ""
 
 
-Write-Host "--- 步骤 3: 从字体生成测试文档 ---" -ForegroundColor Cyan
-if (Confirm-Proceed "是否从字体生成测试文档？ (y/n)") {
-    $fontFiles = Read-Host "请输入字体文件路径 (多个文件用空格分隔，例如: 'font1.ttf font2.otf')，或留空以跳过此步骤："
-    if ([string]::IsNullOrWhiteSpace($fontFiles)) {
-        Write-Host "未输入字体文件，已跳过字体测试文档生成步骤。" -ForegroundColor Yellow
-    } else {
-        Write-Host "正在执行 font_unicode_decipher.exe extract..." -ForegroundColor Green
-        $fontFilesArray = $fontFiles.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
-        ./font_unicode_decipher.exe extract $fontFilesArray
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "font_unicode_decipher.exe extract 执行失败，请检查错误。" -ForegroundColor Red
-            exit 1
+Write-Host "--- 步骤 3: 生成测试文档 ---" -ForegroundColor Cyan
+if (Confirm-Proceed "是否生成测试文档？ (y/n)") {
+    $useFontGenerator = Confirm-Proceed "是否从字体文件生成测试文档？ (y/n)"
+
+    if ($useFontGenerator) {
+        Write-Host "从字体生成测试文档"
+        $fontFiles = Read-Host "请输入字体文件路径 (多个文件用空格分隔，例如: 'font1.ttf font2.otf')，或留空以跳过此步骤："
+        if ([string]::IsNullOrWhiteSpace($fontFiles)) {
+            Write-Host "未输入字体文件，已跳过字体测试文档生成步骤。" -ForegroundColor Yellow
+        } else {
+            Write-Host "正在执行 font_unicode_decipher.exe extract..." -ForegroundColor Green
+            $fontFilesArray = $fontFiles.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+            ./font_unicode_decipher.exe extract $fontFilesArray
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "font_unicode_decipher.exe extract 执行失败，请检查错误。" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "字体测试文档生成完成。" -ForegroundColor Green
         }
-        Write-Host "字体测试文档生成完成。" -ForegroundColor Green
+    } else {
+        $useRangeGenerator = Confirm-Proceed "是否从 16 进制生成测试文档？ (y/n)"
+
+        if ($useRangeGenerator) {
+            $startHex = Read-Host "请输入起始 Unicode 范围 (十六进制，例如：0000)"
+            $endHex = Read-Host "请输入结束 Unicode 范围 (十六进制，例如：FFFF)"
+            $fontPath = Read-Host "请输入字体文件路径 (例如：arial.ttf)"
+
+            if ([string]::IsNullOrWhiteSpace($fontPath)) {
+                Write-Host "未输入字体文件路径，已跳过此步骤。" -ForegroundColor Yellow
+            } else {
+                Write-Host "正在执行 unicode_range_generator.exe..." -ForegroundColor Green
+                ./unicode_range_generator.exe --file combined_unicode_list.txt --start $startHex --end $endHex --font $fontPath
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "unicode_range_generator.exe 执行失败，请检查错误。" -ForegroundColor Red
+                    exit 1
+                }
+                Write-Host "字体测试文档生成完成。" -ForegroundColor Green
+            }
+        } else {
+            Write-Host "已跳过从 16 进制范围生成测试文档步骤。" -ForegroundColor Yellow
+        }
     }
 } else {
     Write-Host "已跳过从字体生成测试文档步骤。" -ForegroundColor Yellow
@@ -88,8 +115,8 @@ Write-Host ""
 
 Write-Host "--- 步骤 4: 重命名 combined_unicode_list.txt 为 Unicode.txt ---" -ForegroundColor Cyan
 if (Confirm-Proceed "是否重命名 'combined_unicode_list.txt' 为 'Unicode.txt'？ (y/n)") {
-    Write-Host "等待 200 毫秒..." -ForegroundColor DarkGray
-    Start-Sleep -m 200
+    Write-Host "等待 100 毫秒..." -ForegroundColor DarkGray
+    Start-Sleep -m 100
 
     if (Test-Path 'combined_unicode_list.txt') {
         Write-Host "正在重命名文件..." -ForegroundColor Green

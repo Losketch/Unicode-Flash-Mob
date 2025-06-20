@@ -38,6 +38,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .required(true)
                 .num_args(1),
         )
+        .arg(
+            Arg::new("font")
+                .short('t')
+                .long("font")
+                .value_name("FONT_PATH")
+                .help("字体路径 (可选)")
+                .num_args(1),
+        )
         .get_matches();
 
     let filename = matches.get_one::<String>("file").unwrap();
@@ -50,6 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let start_str = matches.get_one::<String>("start").unwrap();
     let end_str = matches.get_one::<String>("end").unwrap();
+    let font_path = matches.get_one::<String>("font").map(|s| s.to_string());
 
     let start = parse_hex(start_str)?;
     let end = parse_hex(end_str)?;
@@ -61,7 +70,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("起始值不能大于结束值".into());
     }
 
-    write_to_file(&file_path, start, end)?;
+    write_to_file(&file_path, start, end, font_path)?;
 
     println!("文件已生成: {}", filename);
     Ok(())
@@ -78,12 +87,13 @@ fn is_valid_hex(s: &str) -> bool {
     s.chars().all(|c| c.is_digit(16))
 }
 
-fn write_to_file(path: &PathBuf, start: u32, end: u32) -> Result<(), Box<dyn Error>> {
+fn write_to_file(path: &PathBuf, start: u32, end: u32, font_path: Option<String>) -> Result<(), Box<dyn Error>> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
     println!("\n正在生成文件,请稍候...");
+    let font_name = font_path.unwrap_or("font.ttf".to_string());
     for code_point in start..=end {
-        writeln!(writer, "U+{:04X}", code_point)?;
+        writeln!(writer, "\"{}\";\"U+{:04X}\"", font_name, code_point)?;
     }
     Ok(())
 }

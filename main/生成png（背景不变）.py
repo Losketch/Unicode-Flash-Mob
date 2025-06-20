@@ -86,11 +86,18 @@ def load_unicode_entries(path: Path) -> list[UnicodeEntry]:
 
 def setup_logging():
     logging.basicConfig(
-        format='[%(asctime)s] %(levelname)s: %(message)s',
+        format='[%(asctime)s] - %(levelname)s - %(message)s',
         datefmt='%H:%M:%S',
         level=logging.INFO
     )
 
+
+def blend_colors(fg_color, bg_color, alpha_ratio):
+    """计算前景色与背景色的叠加结果"""
+    r = int(fg_color[0] * alpha_ratio + bg_color[0] * (1 - alpha_ratio))
+    g = int(fg_color[1] * alpha_ratio + bg_color[1] * (1 - alpha_ratio))
+    b = int(fg_color[2] * alpha_ratio + bg_color[2] * (1 - alpha_ratio))
+    return (r, g, b, 255)
 
 def generate_image_bytes(
     entry: UnicodeEntry,
@@ -145,7 +152,10 @@ def generate_image_bytes(
     text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
     pos_x = (cfg.image_size[0] - text_w) // 2 + cfg.text_position[0]
     pos_y = (cfg.image_size[1] - text_h) // 4 + cfg.text_position[1]
-    draw.text((pos_x, pos_y), char, font=middle_font, fill=cfg.middle_font_color)
+
+    alpha_ratio = cfg.middle_font_color[3] / 255.0
+    blended_color = blend_colors(cfg.middle_font_color[:3], cfg.background_color[:3], alpha_ratio)
+    draw.text((pos_x, pos_y), char, font=middle_font, fill=blended_color)
 
     # 底部文字
     if entry.description:
@@ -191,7 +201,7 @@ def main():
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
     middle_font_cache: dict[Path, ImageFont.FreeTypeFont | None] = {}
 
-    # 启动写入线程
+    # HDD 磁盘可以适当增加队列大小，减少写入频率
     q: Queue = Queue(maxsize=100)
     writer = Thread(target=writer_thread_fn, args=(q,), daemon=True)
     writer.start()
