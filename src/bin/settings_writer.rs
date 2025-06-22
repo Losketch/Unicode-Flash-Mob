@@ -5,6 +5,7 @@ fn main() -> io::Result<()> {
     let mut file = File::create("settings.ini")?;
 
     writeln!(file, "[Settings]")?;
+    writeln!(file, "ctrl_font_file = Ctrl-Ctrl.ttf")?;
     writeln!(file, "middle_font_size = 512")?;
     writeln!(file, "middle_font_color = 255,255,255,255")?;
     writeln!(file, "text_position_x = 0")?;

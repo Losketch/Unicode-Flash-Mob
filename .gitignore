@@ -1,4 +1,5 @@
 
+__pycache__/
 target/
 
 main/*.exe
@@ -12,6 +13,7 @@ main/Unicode.txt
 
 main/ffmpeg/
 main/python/
+main/Internal_test/
 
 main/output/
 main/png/

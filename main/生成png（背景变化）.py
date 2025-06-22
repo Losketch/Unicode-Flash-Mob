@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import sys
 import time
 import hashlib
 import logging
@@ -13,6 +14,9 @@ from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 
+sys.path.insert(0, os.path.dirname(__file__))
+
+from control_map import get_char, CONTROL_CODES_2400, CONTROL_CODES_E000, CONTROL_CODES_F0000, CONTROL_CODES_100000, CONTROL_CODES_E0000
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
@@ -22,6 +26,7 @@ class Config:
     unicode_file: Path
     output_dir: Path
     font_files: list[Path]
+    ctrl_font_file: Path
     bottom_font_file: Path
     middle_font_size: int
     bottom_font_size: int
@@ -43,6 +48,7 @@ class Config:
             unicode_file=Path.cwd() / 'Unicode.txt',
             output_dir=Path.cwd() / 'png',
             font_files=[Path.cwd() / 'font.ttf'],
+            ctrl_font_file=Path(s.get('ctrl_font_file', 'Ctrl-Ctrl.ttf')),
             bottom_font_file=Path.cwd() / 'PressStart2P-1.ttf',
             middle_font_size=int(s.get('middle_font_size', '512')),
             bottom_font_size=int(s.get('bottom_font_size', '19')),
@@ -137,6 +143,7 @@ def generate_image_bytes(
     cfg: Config,
     color_mgr: ColorManager,
     bottom_font: ImageFont.FreeTypeFont,
+    ctrl_font: ImageFont.FreeTypeFont,
     middle_font_cache: dict[Path, ImageFont.FreeTypeFont],
     cache_lock: Lock
 ) -> tuple[bytes, Path]:
@@ -144,9 +151,18 @@ def generate_image_bytes(
     生成图片并返回 PNG bytes 以及目标路径，写入线程负责落盘。
     """
     try:
-        char = chr(int(entry.code_str.strip()[2:], 16))
+        cp = int(entry.code_str.strip()[2:], 16)
     except:
         raise ValueError(f"无效的 code_str: {entry.code_str!r}")
+
+    char = get_char(cp)
+    is_control = (
+        cp in CONTROL_CODES_2400
+        or cp in CONTROL_CODES_E000
+        or cp in CONTROL_CODES_F0000
+        or cp in CONTROL_CODES_100000
+        or cp in CONTROL_CODES_E0000
+    )
 
     # 新建背景
     bg_color = color_mgr.get_color(entry.description)
@@ -154,43 +170,47 @@ def generate_image_bytes(
     draw = ImageDraw.Draw(img)
 
     # 中间字体（按顺序尝试加载支持的字体）
-    with cache_lock:
-        middle_font = None
-        p = entry.font_path
-        if p not in middle_font_cache:
-            if not p.exists():
-                logging.warning(f"字体文件不存在: {p}，将使用备用字体")
-            try:
-                middle_font_cache[p] = ImageFont.truetype(str(p), cfg.middle_font_size)
-            except OSError as e:
-                logging.warning(f"加载字体失败 `{p}`: {e}，将使用备用字体")
-                middle_font_cache[p] = None
-        if middle_font_cache[p]:
-            middle_font = middle_font_cache[p]
-        else:
-            # 退回到全局备用列表
-            for q in cfg.font_files:
-                if q not in middle_font_cache:
-                    try:
-                        middle_font_cache[q] = ImageFont.truetype(str(q), cfg.middle_font_size)
-                    except OSError:
-                        middle_font_cache[q] = None
-                if middle_font_cache[q]:
-                    middle_font = middle_font_cache[q]
-                    break
+    if is_control:
+        middle_font = ctrl_font
+    else:
+        with cache_lock:
+            middle_font = None
+            p = entry.font_path
+            if p not in middle_font_cache:
+                if not p.exists():
+                    logging.warning(f"字体文件不存在: {p}，将使用备用字体")
+                try:
+                    middle_font_cache[p] = ImageFont.truetype(str(p), cfg.middle_font_size)
+                except OSError as e:
+                    logging.warning(f"加载字体失败 `{p}`: {e}，将使用备用字体")
+                    middle_font_cache[p] = None
+            if middle_font_cache[p]:
+                middle_font = middle_font_cache[p]
+            else:
+                # 退回到全局备用列表
+                for q in cfg.font_files:
+                    if q not in middle_font_cache:
+                        try:
+                            middle_font_cache[q] = ImageFont.truetype(str(q), cfg.middle_font_size)
+                        except OSError:
+                            middle_font_cache[q] = None
+                    if middle_font_cache[q]:
+                        middle_font = middle_font_cache[q]
+                        break
 
-    if not middle_font:
-        char = "无法加载字体：" + char
-        middle_font = ImageFont.load_default()
+        if not middle_font:
+            char = "无法加载字体：" + char
+            middle_font = ImageFont.load_default()
 
-    bbox = draw.textbbox((0, 0), char, font=middle_font)
-    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    pos_x = (cfg.image_size[0] - text_w) // 2 + cfg.text_position[0]
-    pos_y = (cfg.image_size[1] - text_h) // 4 + cfg.text_position[1]
+    bbox = draw.textbbox((0,0), char, font=middle_font)
+    w, h = bbox[2]-bbox[0], bbox[3]-bbox[1]
+    x = (cfg.image_size[0]-w)//2 + cfg.text_position[0]
+    y = (cfg.image_size[1]-h)//4 + cfg.text_position[1]
 
-    alpha_ratio = cfg.middle_font_color[3] / 255.0
-    blended_color = blend_colors(cfg.middle_font_color[:3], bg_color[:3], alpha_ratio)
-    draw.text((pos_x, pos_y), char, font=middle_font, fill=blended_color)
+    alpha = cfg.middle_font_color[3]/255
+    fg = cfg.middle_font_color[:3]
+    blended = blend_colors(fg, bg_color[:3], alpha)
+    draw.text((x,y), char, font=middle_font, fill=blended)
 
     # 底部文字
     if entry.description:
@@ -235,6 +255,12 @@ def main():
 
     color_mgr = ColorManager(cfg.color_cycle)
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
+    try:
+        ctrl_font = ImageFont.truetype(str(cfg.ctrl_font_file), cfg.middle_font_size)
+    except OSError:
+        logging.error(f"加载 Ctrl 字形专用字体失败：{cfg.ctrl_font_file}，将回退到默认字体")
+        ctrl_font = ImageFont.load_default()
+
     middle_font_cache: dict[Path, ImageFont.FreeTypeFont | None] = {}
 
     # HDD 磁盘可以适当增加队列大小，减少写入频率
@@ -246,7 +272,7 @@ def main():
     start = time.time()
     with ThreadPoolExecutor(max_workers=4) as pool, tqdm(total=total, desc="生成图片", unit="项") as bar:
         futures = [
-            pool.submit(generate_image_bytes, entry, cfg, color_mgr, bottom_font, middle_font_cache, cache_lock)
+            pool.submit(generate_image_bytes, entry, cfg, color_mgr, bottom_font, ctrl_font, middle_font_cache, cache_lock)
             for entry in entries
         ]
         for fut in as_completed(futures):
