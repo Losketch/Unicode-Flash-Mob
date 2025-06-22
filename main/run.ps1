@@ -90,7 +90,7 @@ if (Confirm-Proceed "是否生成测试文档？ (y/n)") {
         if ($useRangeGenerator) {
             $startHex = Read-Host "请输入起始 Unicode 范围 (十六进制，例如：0000)"
             $endHex = Read-Host "请输入结束 Unicode 范围 (十六进制，例如：FFFF)"
-            $fontPath = Read-Host "请输入字体文件路径 (例如：arial.ttf)"
+            $fontPath = Read-Host "请输入字体文件路径 (例如：arial.ttf，仅限单一字体)"
 
             if ([string]::IsNullOrWhiteSpace($fontPath)) {
                 Write-Host "未输入字体文件路径，已跳过此步骤。" -ForegroundColor Yellow
