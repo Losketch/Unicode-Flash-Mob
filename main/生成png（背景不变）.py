@@ -167,10 +167,14 @@ def generate_image_bytes(
             char = "无法加载字体：" + char
             middle_font = ImageFont.load_default()
 
+    W, H = cfg.image_size
+    ascent, descent = middle_font.getmetrics()
+    baseline_y = int(H/2 + (ascent - descent)/2) + cfg.text_position[1]
+
     bbox = draw.textbbox((0,0), char, font=middle_font)
-    w, h = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    x = (cfg.image_size[0]-w)//2 + cfg.text_position[0]
-    y = (cfg.image_size[1]-h)//4 + cfg.text_position[1]
+    w = bbox[2] - bbox[0]
+    x = (W - w)//2 + cfg.text_position[0]
+    y = baseline_y - ascent
 
     alpha = cfg.middle_font_color[3]/255
     fg = cfg.middle_font_color[:3]
@@ -186,12 +190,12 @@ def generate_image_bytes(
         (100, cfg.image_size[1] - cfg.bottom_font_size - 125),
         bottom_text,
         font=bottom_font,
-        fill=(255, 255, 255, 255)
+        fill=blended
     )
 
     # 保存
     buf = BytesIO()
-    img.save(buf, format='PNG', compress_level=1, optimize=True)  # compress_level=1 较快
+    img.save(buf, format='PNG', compress_level=2)  # compress_level=2 较快, optimize=True
     data = buf.getvalue()
 
     img.close()
