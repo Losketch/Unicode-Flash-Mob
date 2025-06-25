@@ -183,7 +183,8 @@ def generate_image_bytes(
 
     # 底部文字
     if entry.description:
-        bottom_text = f"{entry.code_str}\n{entry.description}"
+        desc = entry.description.replace('|', '\n')
+        bottom_text = f"{entry.code_str}\n{desc}"
     else:
         bottom_text = entry.code_str
     draw.multiline_text(

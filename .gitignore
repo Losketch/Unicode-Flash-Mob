@@ -5,15 +5,15 @@ target/
 main/*.exe
 main/*.7z
 main/*.zip
+main/*.m4a
 
-main/DUTM.m4a
 main/DecipherUnicode*.txt
+main/Unicode*.txt
 main/settings.ini
-main/Unicode.txt
 
 main/ffmpeg/
 main/python/
 main/Internal_test/
 
 main/output/
-main/png/
+main/png*/
