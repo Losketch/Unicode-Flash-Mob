@@ -43,6 +43,28 @@ class Config:
         s = parser['Settings']
         def get_tuple(key, fallback, typ=int):
             return tuple(typ(x) for x in s.get(key, fallback).split(','))
+        def hex_to_rgba(s: str) -> tuple[int,int,int,int]:
+            s = s.lstrip('#')
+            if len(s) == 6:
+                s = s + 'FF'
+            if len(s) != 8:
+                raise ValueError(f"Invalid hex color: {s!r}")
+            r = int(s[0:2], 16)
+            g = int(s[2:4], 16)
+            b = int(s[4:6], 16)
+            a = int(s[6:8], 16)
+            return (r, g, b, a)
+
+        hex_cycle = [
+            "#ABDF56FF", "#6DE74EFF", "#68F59FFF",
+            "#00BE9DFF", "#00CB81FF", "#A8FD9AFF",
+            "#99FEA9FF", "#98FCCAFF", "#98FEEBFF",
+            "#97ECFDFF", "#33E2FDFF", "#34B5DFFF",
+            "#0095E0FF", "#CD9BFFFF", "#AB9BFFFF",
+            "#EE9AFFEF", "#FF9AF0FF", "#FE9ACCFF",
+            "#FF9AAAFF", "#FCAB9AFF", "#FBC99AFF",
+            "#FDEE99FF", "#EEFE99FF", "#CFFF9BFF",
+        ]
 
         return Config(
             unicode_file=Path.cwd() / 'Unicode.txt',
@@ -58,16 +80,7 @@ class Config:
             ),
             middle_font_color=get_tuple('middle_font_color', '255,255,255,255'),
             image_size=(1920, 1080),
-            color_cycle=[
-                (171, 223, 86, 255), (109, 231, 78, 255), (104, 245, 159, 255),
-                (0, 190, 157, 255), (0, 203, 129, 255), (168, 253, 154, 255),
-                (153, 254, 169, 255), (152, 252, 202, 255), (152, 254, 235, 255),
-                (151, 236, 253, 255), (51, 226, 253, 255), (52, 181, 223, 255),
-                (0, 149, 224, 255), (205, 155, 255, 255), (171, 155, 255, 255),
-                (238, 154, 255, 255), (255, 154, 240, 255), (254, 154, 204, 255),
-                (255, 154, 170, 255), (252, 171, 154, 255), (251, 201, 154, 255),
-                (253, 236, 153, 255), (238, 254, 153, 255), (207, 255, 155, 255)
-            ]
+            color_cycle = [hex_to_rgba(h) for h in hex_cycle]
         )
 
 
@@ -226,8 +239,13 @@ def generate_image_bytes(
 
     # 保存
     buf = BytesIO()
-    img.save(buf, format='PNG', compress_level=1)  # compress_level=1 较快
+    img.save(buf, format='PNG', compress_level=1, optimize=True)  # compress_level=1 较快
     data = buf.getvalue()
+
+    img.close()
+    buf.close()
+    del img, draw, buf
+
     out_path = cfg.output_dir / f"image_{entry.code_str}.png"
     return data, out_path
 

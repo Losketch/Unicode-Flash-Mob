@@ -191,8 +191,13 @@ def generate_image_bytes(
 
     # 保存
     buf = BytesIO()
-    img.save(buf, format='PNG', compress_level=1)  # compress_level=1 较快
+    img.save(buf, format='PNG', compress_level=1, optimize=True)  # compress_level=1 较快
     data = buf.getvalue()
+
+    img.close()
+    buf.close()
+    del img, draw, buf
+
     out_path = cfg.output_dir / f"image_{entry.code_str}.png"
     return data, out_path
 

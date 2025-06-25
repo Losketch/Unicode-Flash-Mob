@@ -134,7 +134,7 @@ def get_output_video_name():
             else:
                 continue
         else:
-            return output_file
+            return output_file_name
 
 def get_frame_rate():
     while True:
