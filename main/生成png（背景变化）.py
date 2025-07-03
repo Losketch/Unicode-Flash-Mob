@@ -16,7 +16,7 @@ from io import BytesIO
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from control_map import get_char, CONTROL_CODES_2400, CONTROL_CODES_E000, CONTROL_CODES_F0000, CONTROL_CODES_100000, CONTROL_CODES_E0000
+from control_map import get_char, CTRLS
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
@@ -169,13 +169,7 @@ def generate_image_bytes(
         raise ValueError(f"无效的 code_str: {entry.code_str!r}")
 
     char = get_char(cp)
-    is_control = (
-        cp in CONTROL_CODES_2400
-        or cp in CONTROL_CODES_E000
-        or cp in CONTROL_CODES_F0000
-        or cp in CONTROL_CODES_100000
-        or cp in CONTROL_CODES_E0000
-    )
+    is_control = (cp in CTRLS)
 
     # 新建背景
     bg_color = color_mgr.get_color(entry.description)
