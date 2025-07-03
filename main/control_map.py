@@ -33,7 +33,6 @@ CONTROL_CODES_2400 = {
     0x1E,
     0x1F,
     0x20,
-    0x7F,
 }
 
 CONTROL_CODES_E000 = {
@@ -576,21 +575,24 @@ CONTROL_CODES_E0000 = {
     0xE01EF,
 }
 
+OFFSET_MAP = [
+    (CONTROL_CODES_2400,   +0x2400),
+    (CONTROL_CODES_E000,   +0xE000),
+    (CONTROL_CODES_F0000 | CONTROL_CODES_100000, +0xF0000),
+    (CONTROL_CODES_E0000,  -0xD2000),
+]
+
+CHAR_MAP = {}
+CHAR_MAP[0x7F] = chr(0x2421)
+
+for codeset, offset in OFFSET_MAP:
+    for c in codeset:
+        CHAR_MAP[c] = chr(c + offset)
+
 def get_char(_code: int) -> str:
     """
-    如果 _code 在某个 CONTROL_CODES_* 集合中，
-    就分别加上对应的偏移量，返回映射字符；
-    否则，直接返回 chr(_code)。
+    如果 code 在 CHAR_MAP 里，就直接返回预先映射好的字符；
+    否则返回 chr(code)。
     from control_map import get_char
     """
-    if _code in CONTROL_CODES_2400:
-        return chr(_code + 0x2400)
-    if _code in CONTROL_CODES_E000:
-        return chr(_code + 0xE000)
-    if _code in CONTROL_CODES_F0000:
-        return chr(_code + 0xF0000)
-    if _code in CONTROL_CODES_100000:
-        return chr(_code + 0xF0000)
-    if _code in CONTROL_CODES_E0000:
-        return chr(_code - 0xD2000)
-    return chr(_code)
+    return CHAR_MAP.get(_code, chr(_code))
