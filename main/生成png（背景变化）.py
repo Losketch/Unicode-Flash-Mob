@@ -97,21 +97,16 @@ class ColorManager:
     """
     def __init__(self, color_cycle: list[tuple[int, int, int, int]]):
         self._cycle = color_cycle
-        self._mapping: dict[int, int] = {}
+        self._mapping: dict[str, int] = {}
         self._counter = 0
         self._lock = Lock()
 
-    def calculate_index(self, description: str) -> int:
-        h = int(hashlib.md5(description.encode('utf-8')).hexdigest(), 16)
-        return h % len(self._cycle)
-
-    def get_color(self, description: str) -> tuple[int, int, int, int]:
-        key = self.calculate_index(description)
+    def get_color(self, description: str) -> tuple[int,int,int,int]:
         with self._lock:
-            if key not in self._mapping:
-                self._mapping[key] = self._counter % len(self._cycle)
+            if description not in self._mapping:
+                self._mapping[description] = self._counter
                 self._counter = (self._counter + 1) % len(self._cycle)
-            idx = self._mapping[key]
+            idx = self._mapping[description]
         return self._cycle[idx]
 
 
