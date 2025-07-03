@@ -36,19 +36,6 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-    match cli.command {
-        Commands::Extract { font_files, out } => {
-            extract_unicode_from_fonts(&font_files, out.as_deref())?;
-        }
-        Commands::Replace { mode } => {
-            replace_unicode(mode)?;
-        }
-    }
-    Ok(())
-}
-
 pub fn extract_unicode_from_fonts(font_paths: &[PathBuf], out_file: Option<&Path>) -> Result<()> {
     let out_path = out_file
         .map(ToOwned::to_owned)

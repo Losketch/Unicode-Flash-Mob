@@ -6,6 +6,9 @@
 [![总下载量](https://img.shields.io/github/downloads/Losketch/Unicode-Flash-Mob/total.svg?color=critical&label=总下载量&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA3LjQyIDcuNDIiPjxjaXJjbGUgY3g9IjMuNyIgY3k9IjMuNyIgcj0iMy43IiBmaWxsPSIjZDY2Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTQuMiAxLjZjLjguMiAxLjQuOSAxLjQgMS42LjQgMCAuOC41LjggMS4xUzYgNS40IDUuNiA1LjRIMmMtLjQgMC0uOC0uNS0uOC0xLjFzLjMtMS4xLjgtMS4xYzAtLjcuNi0xLjQgMS40LTEuNlYzLjJIMi42TDMuOCA0LjcgNC45IDMuMkg0LjJaIi8+PC9zdmc+)](https://github.com/Losketch/Unicode-Flash-Mob/releases/latest)
 [![星标](https://img.shields.io/github/stars/Losketch/Unicode-Flash-Mob?label=星标数&color=critical&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA4IDgiPjxwYXRoIGZpbGw9IiNmZDAiIGQ9Im00IDAgMSAyLjYgMi43LjMtMi4xIDEuOC44IDNMNCA2LjQgMS42IDcuN2wuOC0zTC4zIDIuOSAzIDIuNnoiLz48L3N2Zz4=)](https://github.com/Losketch/Unicode-Flash-Mob)
 [![License](https://img.shields.io/static/v1?label=使用协议&message=apache+license+2.0&color=critical&logo=creative%20commons)](https://github.com/Losketch/Unicode-Flash-Mob/blob/main/LICENSE)
+
+![icon](./icon.svg)
+
 </div>
 
 ---
