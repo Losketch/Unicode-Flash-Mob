@@ -61,7 +61,7 @@ fn parse_unicode_data<P: AsRef<Path>>(input: P, output: P) -> Result<()> {
     Ok(())
 }
 
-fn main() {
+pub fn main() -> Result<()> {
     let input_path = "UnicodeData.txt";
     let output_path = "DecipherUnicodeData.txt";
 
@@ -69,4 +69,6 @@ fn main() {
         eprintln!("错误: {:#}", err);
         std::process::exit(1);
     }
+
+    Ok(())
 }

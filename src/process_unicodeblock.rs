@@ -40,7 +40,7 @@ fn expand_unicode_blocks<P: AsRef<Path>>(input_path: P, output_path: P) -> Resul
     Ok(())
 }
 
-fn main() {
+pub fn main() -> Result<()> {
     let input = "UnicodeBlocks.txt";
     let output = "DecipherUnicodeBlocks.txt";
 
@@ -48,4 +48,6 @@ fn main() {
         eprintln!("错误: {:?}", e);
         std::process::exit(1);
     }
+
+    Ok(())
 }

@@ -32,7 +32,7 @@ fn download_file(url: &str, dest_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn main() -> io::Result<()> {
+pub fn main() -> io::Result<()> {
     let targets = [
         (
             "https://unicode.org/Public/draft/ucd/UnicodeData.txt",

@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{self, Write};
 
-fn main() -> io::Result<()> {
+pub fn main() -> io::Result<()> {
     let mut file = File::create("settings.ini")?;
 
     writeln!(file, "[Settings]")?;

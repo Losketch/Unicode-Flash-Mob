@@ -49,7 +49,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn extract_unicode_from_fonts(font_paths: &[PathBuf], out_file: Option<&Path>) -> Result<()> {
+pub fn extract_unicode_from_fonts(font_paths: &[PathBuf], out_file: Option<&Path>) -> Result<()> {
     let out_path = out_file
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| PathBuf::from("combined_unicode_list.txt"));
@@ -86,7 +86,7 @@ fn extract_unicode_from_fonts(font_paths: &[PathBuf], out_file: Option<&Path>) -
     Ok(())
 }
 
-fn replace_unicode(mode: Option<u8>) -> Result<()> {
+pub fn replace_unicode(mode: Option<u8>) -> Result<()> {
     let choice = if let Some(m) = mode {
         match m {
             1 => "1".to_string(),

@@ -17,10 +17,10 @@ function Confirm-Proceed {
 
 Write-Host "--- 步骤 1: 尝试更新数据 ---" -ForegroundColor Cyan
 if (Confirm-Proceed "是否开始更新数据？ (y/n)") {
-    Write-Host "正在执行 downloader.exe..." -ForegroundColor Green
-    ./downloader.exe
+    Write-Host "正在执行 download..." -ForegroundColor Green
+    ./unicode_flash_mob.exe download
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "downloader.exe 执行失败，请检查错误。" -ForegroundColor Red
+        Write-Host "download 执行失败，请检查错误。" -ForegroundColor Red
         exit 1
     }
     Write-Host "数据更新完成。" -ForegroundColor Green
@@ -32,31 +32,31 @@ Write-Host ""
 
 Write-Host "--- 步骤 2: 重置配置设置并生成 DecipherUnicode*.txt 文件 ---" -ForegroundColor Cyan
 if (Confirm-Proceed "是否 重置配置设置 并生成 DecipherUnicode*.txt 文件？ (y/n)") {
-    Write-Host "正在执行 settings_writer.exe..." -ForegroundColor Green
-    ./settings_writer.exe
+    Write-Host "正在执行 write-settings..." -ForegroundColor Green
+    ./unicode_flash_mob.exe write-settings
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "settings_writer.exe 执行失败，请检查错误。" -ForegroundColor Red
+        Write-Host "write-settings 执行失败，请检查错误。" -ForegroundColor Red
         exit 1
     }
 
-    if (Confirm-Proceed "是否执行 process_unicodeblock.exe (可选)？ (y/n)") {
-        Write-Host "正在执行 process_unicodeblock.exe..." -ForegroundColor Green
-        ./process_unicodeblock.exe
+    if (Confirm-Proceed "是否执行 process-unicode-block (可选)？ (y/n)") {
+        Write-Host "正在执行 process-unicode-block..." -ForegroundColor Green
+        ./unicode_flash_mob.exe process-unicode-block
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "process_unicodeblock.exe 执行失败，请检查错误。" -ForegroundColor Red
+            Write-Host "process-unicode-block 执行失败，请检查错误。" -ForegroundColor Red
         }
     } else {
-        Write-Host "已跳过 process_unicodeblock.exe。" -ForegroundColor Yellow
+        Write-Host "已跳过 process-unicode-block。" -ForegroundColor Yellow
     }
 
-    if (Confirm-Proceed "是否执行 process_unicodedata.exe (可选)？ (y/n)") {
-        Write-Host "正在执行 process_unicodedata.exe..." -ForegroundColor Green
-        ./process_unicodedata.exe
+    if (Confirm-Proceed "是否执行 process-unicode-data (可选)？ (y/n)") {
+        Write-Host "正在执行 process-unicode-data..." -ForegroundColor Green
+        ./unicode_flash_mob.exe process-unicode-data
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "process_unicodedata.exe 执行失败，请检查错误。" -ForegroundColor Red
+            Write-Host "process-unicode-data 执行失败，请检查错误。" -ForegroundColor Red
         }
     } else {
-        Write-Host "已跳过 process_unicodedata.exe。" -ForegroundColor Yellow
+        Write-Host "已跳过 process-unicode-data。" -ForegroundColor Yellow
     }
     Write-Host "DecipherUnicode*.txt 文件生成及配置设置完成。" -ForegroundColor Green
 } else {
@@ -75,11 +75,11 @@ if (Confirm-Proceed "是否生成测试文档？ (y/n)") {
         if ([string]::IsNullOrWhiteSpace($fontFiles)) {
             Write-Host "未输入字体文件，已跳过字体测试文档生成步骤。" -ForegroundColor Yellow
         } else {
-            Write-Host "正在执行 font_unicode_decipher.exe extract..." -ForegroundColor Green
+            Write-Host "正在执行 extract..." -ForegroundColor Green
             $fontFilesArray = $fontFiles.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
-            ./font_unicode_decipher.exe extract $fontFilesArray
+            ./unicode_flash_mob.exe extract $fontFilesArray
             if ($LASTEXITCODE -ne 0) {
-                Write-Host "font_unicode_decipher.exe extract 执行失败，请检查错误。" -ForegroundColor Red
+                Write-Host "extract 执行失败，请检查错误。" -ForegroundColor Red
                 exit 1
             }
             Write-Host "字体测试文档生成完成。" -ForegroundColor Green
@@ -95,10 +95,10 @@ if (Confirm-Proceed "是否生成测试文档？ (y/n)") {
             if ([string]::IsNullOrWhiteSpace($fontPath)) {
                 Write-Host "未输入字体文件路径，已跳过此步骤。" -ForegroundColor Yellow
             } else {
-                Write-Host "正在执行 unicode_range_generator.exe..." -ForegroundColor Green
-                ./unicode_range_generator.exe --file combined_unicode_list.txt --start $startHex --end $endHex --font $fontPath
+                Write-Host "正在执行 generate-unicode-range..." -ForegroundColor Green
+                ./unicode_flash_mob.exe generate-unicode-range --file combined_unicode_list.txt --start $startHex --end $endHex --font $fontPath
                 if ($LASTEXITCODE -ne 0) {
-                    Write-Host "unicode_range_generator.exe 执行失败，请检查错误。" -ForegroundColor Red
+                    Write-Host "generate-unicode-range 执行失败，请检查错误。" -ForegroundColor Red
                     exit 1
                 }
                 Write-Host "字体测试文档生成完成。" -ForegroundColor Green
@@ -133,15 +133,15 @@ Write-Host ""
 
 Write-Host "--- 步骤 5: 执行 集成字体 Unicode 提取与说明文件替换工具 ---" -ForegroundColor Cyan
 if (Confirm-Proceed "是否执行 集成字体 Unicode 提取与说明文件替换工具？ (y/n)") {
-    Write-Host "正在执行 font_unicode_decipher.exe replace 1..." -ForegroundColor Green
-    ./font_unicode_decipher.exe replace 1
+    Write-Host "正在执行 replace-unicode-data 1..." -ForegroundColor Green
+    ./unicode_flash_mob.exe replace-unicode-data 1
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "font_unicode_decipher.exe replace 执行失败，请检查错误。" -ForegroundColor Red
+        Write-Host "replace-unicode-data 执行失败，请检查错误。" -ForegroundColor Red
         exit 1
     }
-    Write-Host "font_unicode_decipher.exe replace 完成。" -ForegroundColor Green
+    Write-Host "replace-unicode-data 完成。" -ForegroundColor Green
 } else {
-    Write-Host "已跳过 font_unicode_decipher.exe replace 步骤。" -ForegroundColor Yellow
+    Write-Host "已跳过 replace-unicode-data 步骤。" -ForegroundColor Yellow
 }
 Write-Host ""
 
