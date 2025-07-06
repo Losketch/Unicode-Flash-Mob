@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unicode Flash Mob - 项目命令生成器</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Unicode Flash Mob 项目命令生成器</h1>
+      <p>为 PowerShell 环境生成完整的命令序列</p>
+    </div>
+    <div class="main-content">
+      <div class="control-panel">
+        <button class="btn" onclick="generateCommands()">生成命令</button>
+        <button class="btn secondary" onclick="clearAll()">清空选择</button>
+      </div>
+      <!-- 步骤 1: 更新数据 -->
+      <div class="section">
+        <div class="section-title">步骤 1: 尝试更新数据</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="1" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">1</div>
+              <div class="step-title">下载数据 <span class="optional-text">(可选)</span></div>
+            </div>
+            <div class="step-description">下载最新的Unicode数据文件到本地</div>
+            <div class="step-command">./unicode_flash_mob.exe download</div>
+          </div>
+        </div>
+      </div>
+      <!-- 步骤 2: 重置配置设置 -->
+      <div class="section">
+        <div class="section-title">步骤 2: 重置配置设置并生成 DecipherUnicode*.txt 文件</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="2" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">2</div>
+              <div class="step-title">重置配置设置 <span class="optional-text">(可选)</span></div>
+            </div>
+            <div class="step-description">重置所有配置参数到默认值</div>
+            <div class="step-command">./unicode_flash_mob.exe write-settings</div>
+          </div>
+          <div class="step-card" data-step="3" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">3</div>
+              <div class="step-title">处理Unicode块 <span class="optional-text">(可选)</span></div>
+            </div>
+            <div class="step-description">生成DecipherUnicode块文件</div>
+            <div class="step-command">./unicode_flash_mob.exe process-unicode-block</div>
+          </div>
+          <div class="step-card" data-step="4" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">4</div>
+              <div class="step-title">处理Unicode数据 <span class="optional-text">(可选)</span></div>
+            </div>
+            <div class="step-description">生成DecipherUnicode数据文件</div>
+            <div class="step-command">./unicode_flash_mob.exe process-unicode-data</div>
+          </div>
+        </div>
+      </div>
+      <!-- 步骤 3: 生成测试文档 -->
+      <div class="section">
+        <div class="section-title">步骤 3: 生成测试文档 (二选一)</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="5" data-group="test-gen" onclick="toggleStep(this, 'radio')">
+            <div class="radio"></div>
+            <div class="step-header">
+              <div class="step-number">5</div>
+              <div class="step-title">从字体提取</div>
+            </div>
+            <div class="step-description">从指定字体文件提取Unicode字符 (支持多个字体)</div>
+            <div class="step-command">./unicode_flash_mob.exe extract [字体文件列表]</div>
+            <div class="font-selector" id="fontSelector" style="display: none;">
+              <div class="file-input-wrapper">
+                <input type="file" class="file-input" id="fontFileInput" accept=".ttf,.otf,font/ttf,font/otf" multiple onchange="handleFontFiles(this)">
+                <button class="file-input-button" onclick="document.getElementById('fontFileInput').click()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14,2 14,8 20,8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10,9 9,9 8,9"></polyline>
+                  </svg> 选择字体文件 (支持 TTF/OTF 格式) </button>
+              </div>
+              <div class="font-list" id="fontList">
+                <div class="empty-list">请选择字体文件</div>
+              </div>
+            </div>
+          </div>
+          <div class="step-card" data-step="6" data-group="test-gen" onclick="toggleStep(this, 'radio')">
+            <div class="radio"></div>
+            <div class="step-header">
+              <div class="step-number">6</div>
+              <div class="step-title">从Unicode范围生成</div>
+            </div>
+            <div class="step-description">基于指定的Unicode范围和字体生成测试文档</div>
+            <div class="step-command">./unicode_flash_mob.exe generate-unicode-range</div>
+            <div class="unicode-range" id="unicodeRange" style="display: none;">
+              <div class="input-group">
+                <label class="input-label">起始范围 (16进制)</label>
+                <input type="text" class="range-input" id="startHex" placeholder="0000" maxlength="6">
+              </div>
+              <div class="input-group">
+                <label class="input-label">结束范围 (16进制)</label>
+                <input type="text" class="range-input" id="endHex" placeholder="10FFFF" maxlength="6">
+              </div>
+              <div class="input-group font-file-selector">
+                <label class="input-label">选择字体文件 (仅限单一字体)</label>
+                <div class="single-font-file">
+                  <div id="selectedSingleFont" class="no-font-selected">未选择字体文件</div>
+                  <div class="file-input-wrapper">
+                    <input type="file" class="file-input" id="singleFontFileInput" accept=".ttf,.otf,font/ttf,font/otf" onchange="handleSingleFontFile(this)">
+                    <button class="file-input-button" onclick="document.getElementById('singleFontFileInput').click()">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14,2 14,8 20,8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10,9 9,9 8,9"></polyline>
+                      </svg> 选择字体文件 </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 步骤 4: 重命名文件 -->
+      <div class="section">
+        <div class="section-title">步骤 4: 重命名 combined_unicode_list.txt 为 Unicode.txt</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="7" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">7</div>
+              <div class="step-title">重命名文件</div>
+            </div>
+            <div class="step-description">将生成的文件重命名为Unicode.txt</div>
+            <div class="step-command">Rename-Item 'combined_unicode_list.txt' -NewName 'Unicode.txt' -ErrorAction Stop</div>
+          </div>
+        </div>
+      </div>
+      <!-- 步骤 5: 执行集成工具 -->
+      <div class="section">
+        <div class="section-title">步骤 5: 执行集成字体 Unicode 提取与说明文件替换工具</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="8" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">8</div>
+              <div class="step-title">生成Unicode数据说明</div>
+            </div>
+            <div class="step-description">执行集成字体Unicode提取与说明文件替换</div>
+            <div class="step-command">./unicode_flash_mob.exe replace-unicode-data 1</div>
+          </div>
+        </div>
+      </div>
+      <!-- 步骤 6: 生成 PNG 文件（二选一） -->
+      <div class="section">
+        <div class="section-title">步骤 6: 生成 PNG 文件 (二选一)</div>
+        <div class="step-grid">
+          <!-- 6.1 背景变化 -->
+          <div class="step-card" data-step="9" data-group="png-gen" onclick="toggleStep(this, 'radio')">
+            <div class="radio"></div>
+            <div class="step-header">
+              <div class="step-number">6</div>
+              <div class="step-title">生成 PNG（背景变化）</div>
+            </div>
+            <div class="step-description">执行脚本，背景会随内容变化</div>
+            <div class="step-command">.\python\python.exe ".\生成png（背景变化）.py"</div>
+          </div>
+          <!-- 6.2 背景不变 -->
+          <div class="step-card" data-step="9" data-group="png-gen" onclick="toggleStep(this, 'radio')">
+            <div class="radio"></div>
+            <div class="step-header">
+              <div class="step-number">6</div>
+              <div class="step-title">生成 PNG（背景不变）</div>
+            </div>
+            <div class="step-description">执行脚本，背景保持固定</div>
+            <div class="step-command">.\python\python.exe ".\生成png（背景不变）.py"</div>
+          </div>
+        </div>
+      </div>
+      <!-- 步骤 7: 生成视频 (MP4) -->
+      <div class="section">
+        <div class="section-title">步骤 7: 生成视频 (MP4)</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="10" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">7</div>
+              <div class="step-title">生成 MP4 文件</div>
+            </div>
+            <div class="step-description">使用 Python 调用 FFmpeg 脚本生成视频</div>
+            <div class="step-command">.\python\python.exe ".\生成mp4文件.py"</div>
+          </div>
+        </div>
+      </div>
+      <!-- 步骤 8: 打开 output 目录 -->
+      <div class="section">
+        <div class="section-title">步骤 8: 打开 output 目录</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="11" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">8</div>
+              <div class="step-title">打开输出目录</div>
+            </div>
+            <div class="step-description">在资源管理器中打开 ./output 文件夹</div>
+            <div class="step-command">Start-Process .\output</div>
+          </div>
+        </div>
+      </div>
+      <div class="output-section">
+        <div class="output-header">
+          <span>生成的PowerShell命令</span>
+          <button class="copy-btn" onclick="copyToClipboard()">复制命令</button>
+        </div>
+        <div class="output-content" id="commandOutput" contenteditable="true"> # 请选择要执行的步骤，然后点击"生成命令"</div>
+      </div>
+    </div>
+  </div>
+  <script src="./index.js"></script>
+</body>
+</html>
