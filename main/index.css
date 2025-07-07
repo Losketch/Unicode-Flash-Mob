@@ -9,15 +9,15 @@ body {
   background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
   color: #1f2937;
   min-height: 100vh;
-  padding: 20px;
+  padding: 12px;
 }
 
 .container {
   max-width: 1200px;
   margin: 0 auto;
   background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.2);
   overflow: hidden;
@@ -26,51 +26,51 @@ body {
 .header {
   background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
-  padding: 24px 32px;
+  padding: 16px 24px;
   text-align: center;
 }
 
 .header h1 {
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .header p {
   opacity: 0.9;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .main-content {
-  padding: 32px;
+  padding: 20px;
 }
 
 .section {
-  margin-bottom: 32px;
-  padding: 24px;
+  margin-bottom: 20px;
+  padding: 16px;
   background: #f8fafc;
-  border-radius: 8px;
-  border-left: 4px solid #3b82f6;
+  border-radius: 6px;
+  border-left: 3px solid #3b82f6;
 }
 
 .section-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: #1f2937;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .step-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
 }
 
 .step-card {
   background: #ffffff;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 14px;
   transition: all 0.3s ease;
   cursor: pointer;
   position: relative;
@@ -78,8 +78,8 @@ body {
 
 .step-card:hover {
   border-color: #3b82f6;
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.15);
-  transform: translateY(-2px);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.15);
+  transform: translateY(-1px);
 }
 
 .step-card.selected {
@@ -96,12 +96,12 @@ body {
 .step-header {
   display: flex;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .step-number {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   background: #3b82f6;
   color: white;
   border-radius: 50%;
@@ -109,44 +109,51 @@ body {
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  margin-right: 12px;
-  font-size: 14px;
+  margin-right: 10px;
+  font-size: 12px;
 }
 
 .step-title {
   font-weight: 600;
-  font-size: 16px;
+  font-size: 14px;
   color: #1f2937;
 }
 
 .step-description {
   color: #6b7280;
-  font-size: 14px;
-  margin-bottom: 12px;
-  line-height: 1.5;
+  font-size: 13px;
+  margin-bottom: 8px;
+  line-height: 1.4;
 }
 
 .step-command {
   background: #f1f5f9;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 4px;
+  padding: 6px 10px;
   font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 13px;
+  font-size: 12px;
   color: #475569;
   word-break: break-all;
 }
 
 .checkbox {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 20px;
-  height: 20px;
+  top: 12px;
+  right: 12px;
+  width: 18px;
+  height: 18px;
   border: 2px solid #d1d5db;
-  border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.checkbox {
+  border-radius: 3px;
+}
+
+.radio {
+  border-radius: 50%;
 }
 
 .step-card.selected .checkbox {
@@ -157,7 +164,7 @@ body {
 .step-card.selected .checkbox::after {
   content: '✓';
   color: white;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: bold;
   position: absolute;
   top: 50%;
@@ -183,8 +190,8 @@ body {
 
 .step-card.selected .radio::after {
   content: '';
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   background: #3b82f6;
   border-radius: 50%;
   position: absolute;
@@ -193,25 +200,26 @@ body {
   transform: translate(-50%, -50%);
 }
 
-.font-selector {
+.font-selector,
+.unicode-range {
   background: #ffffff;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 20px;
-  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 8px;
 }
 
 .font-list {
   border: 1px solid #d1d5db;
-  border-radius: 6px;
-  max-height: 200px;
+  border-radius: 4px;
+  max-height: 120px;
   overflow-y: auto;
-  margin-bottom: 16px;
-  min-height: 50px;
+  margin-bottom: 8px;
+  min-height: 40px;
 }
 
 .font-item {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
   justify-content: space-between;
@@ -232,7 +240,7 @@ body {
 .font-name {
   flex: 1;
   font-family: 'Consolas', monospace;
-  font-size: 14px;
+  font-size: 12px;
   color: #374151;
 }
 
@@ -260,11 +268,12 @@ body {
 .font-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  color: #374151;
 }
 
 .file-input-wrapper {
   position: relative;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 
 .file-input {
@@ -274,14 +283,14 @@ body {
 .file-input-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   background: #10b981;
   color: white;
   border: none;
-  padding: 12px 20px;
-  border-radius: 6px;
+  padding: 8px 14px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   transition: all 0.2s ease;
   width: 100%;
@@ -290,19 +299,18 @@ body {
 
 .file-input-button:hover {
   background: #059669;
-  transform: translateY(-1px);
 }
 
 .file-input-button svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .unicode-range {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 8px;
   align-items: end;
 }
 
@@ -312,17 +320,17 @@ body {
 }
 
 .input-label {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   color: #374151;
 }
 
 .range-input {
-  padding: 8px 12px;
+  padding: 6px 8px;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: 4px;
+  font-size: 12px;
   font-family: 'Consolas', monospace;
 }
 
@@ -344,6 +352,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  font-size: 14px;
 }
 
 .output-content {
@@ -353,7 +362,7 @@ body {
   font-family: 'Consolas', 'Courier New', monospace;
   color: #10b981;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
   min-height: 120px;
   border: 1px solid #374151;
   white-space: pre-wrap;
@@ -361,8 +370,8 @@ body {
 
 .control-panel {
   display: flex;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
@@ -370,10 +379,10 @@ body {
   background: #3b82f6;
   color: white;
   border: none;
-  padding: 12px 24px;
-  border-radius: 6px;
+  padding: 8px 16px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   transition: all 0.2s ease;
 }
@@ -395,10 +404,10 @@ body {
   background: #3b82f6;
   color: white;
   border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 6px 12px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   transition: background 0.2s ease;
 }
 
@@ -408,63 +417,91 @@ body {
 
 .optional-text {
   color: #f59e0b;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
 }
 
 .empty-list {
-  padding: 20px;
+  padding: 12px;
   text-align: center;
   color: #6b7280;
   font-style: italic;
+  font-size: 12px;
 }
 
 .single-font-file {
   background: #ffffff;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 16px;
-  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 8px;
 }
 
 .selected-font {
-  padding: 12px 16px;
+  padding: 8px 12px;
   background: #f0f9ff;
   border: 1px solid #bfdbfe;
-  border-radius: 6px;
+  border-radius: 4px;
   font-family: 'Consolas', monospace;
-  font-size: 14px;
+  font-size: 12px;
   color: #1e40af;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   word-break: break-all;
 }
 
 .no-font-selected {
-  padding: 12px 16px;
+  padding: 8px 12px;
   background: #fef3c7;
   border: 1px solid #fbbf24;
-  border-radius: 6px;
+  border-radius: 4px;
   color: #92400e;
-  font-size: 14px;
-  margin-bottom: 12px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+/* 折叠功能 */
+.section.collapsible .section-title {
+  cursor: pointer;
+  position: relative;
+  padding-right: 20px;
+}
+
+.section.collapsible .section-title::after {
+  content: '▼';
+  position: absolute;
+  right: 0;
+  top: 0;
+  transition: transform 0.2s ease;
+}
+
+.section.collapsible.collapsed .section-title::after {
+  transform: rotate(-90deg);
+}
+
+.section.collapsible.collapsed .section-title {
+  margin-bottom: 0;
+}
+
+.section.collapsible.collapsed .step-grid {
+  display: none;
 }
 
 @media (max-width: 768px) {
   .container {
-    margin: 10px;
-    border-radius: 8px;
+    margin: 8px;
+    border-radius: 6px;
   }
 
   .header {
-    padding: 20px;
+    padding: 12px;
   }
 
   .header h1 {
-    font-size: 24px;
+    font-size: 18px;
   }
 
   .main-content {
-    padding: 20px;
+    padding: 12px;
   }
 
   .step-grid {

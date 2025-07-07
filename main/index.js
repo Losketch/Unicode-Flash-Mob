@@ -272,3 +272,28 @@ function copyToClipboard() {
 updateFontList();
 updateSingleFontDisplay();
 generateCommands();
+
+function toggleAllSections() {
+  const sections = document.querySelectorAll('.section');
+  const allCollapsed = Array.from(sections).every(section => section.classList.contains('collapsed'));
+
+  sections.forEach(section => {
+    section.classList.add('collapsible');
+    if (allCollapsed) {
+      section.classList.remove('collapsed');
+    } else {
+      section.classList.add('collapsed');
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const sections = document.querySelectorAll('.section');
+  sections.forEach(section => {
+    section.classList.add('collapsible');
+    const title = section.querySelector('.section-title');
+    title.addEventListener('click', function() {
+      section.classList.toggle('collapsed');
+    });
+  });
+});
