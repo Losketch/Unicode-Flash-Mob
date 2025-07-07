@@ -143,7 +143,7 @@ fn replace_content(path: &str, unicode_map: &HashMap<String, String>) -> Result<
 
     let re = Regex::new(r#""(U\+[0-9A-Fa-f]{4,6})""#).unwrap();
 
-    let mut output = String::new();
+    let mut output = Vec::new();
     for line in reader.lines() {
         let line = line?;
         let replaced = re.replace_all(&line, |caps: &regex::Captures| {
@@ -154,13 +154,22 @@ fn replace_content(path: &str, unicode_map: &HashMap<String, String>) -> Result<
                 caps[0].to_string()
             }
         });
-        output.push_str(&replaced);
-        output.push('\n');
+        output.push(replaced.to_string());
     }
+
+    // 对结果进行排序
+    output.sort_by(|a, b| {
+        let code_a = re.captures(a).and_then(|caps| caps.get(1)).map_or(0, |m| u32::from_str_radix(&m.as_str()[2..], 16).unwrap());
+        let code_b = re.captures(b).and_then(|caps| caps.get(1)).map_or(0, |m| u32::from_str_radix(&m.as_str()[2..], 16).unwrap());
+        code_a.cmp(&code_b)
+    });
 
     let out_f = fs::File::create(path)?;
     let mut writer = BufWriter::new(out_f);
-    writer.write_all(output.as_bytes())?;
+    for line in output {
+        writer.write_all(line.as_bytes())?;
+        writer.write_all(b"\n")?;
+    }
     writer.flush()?;
     Ok(())
 }

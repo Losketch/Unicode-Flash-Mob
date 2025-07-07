@@ -218,9 +218,19 @@ def main():
     cfg = Config.load(Path('settings.ini'))
     cfg.output_dir.mkdir(exist_ok=True)
 
+    # 解析已存在的 PNG 文件，记录已处理的代码点
+    existing_entries = {}
+    for png_file in cfg.output_dir.glob('*.png'):
+        if png_file.stat().st_size >= 1000:
+            code_str = png_file.stem.split('_')[-1]
+            existing_entries[code_str] = png_file
+
     entries = load_unicode_entries(cfg.unicode_file)
     total = len(entries)
     logging.info(f"共读取 {total} 行，将开始生成图片。")
+
+    # 过滤已存在的条目
+    entries_to_process = [entry for entry in entries if entry.code_str not in existing_entries]
 
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
     try:
@@ -238,10 +248,10 @@ def main():
 
     cache_lock = Lock()
     start = time.time()
-    with ThreadPoolExecutor(max_workers=4) as pool, tqdm(total=total, desc="生成图片", unit="项") as bar:
+    with ThreadPoolExecutor(max_workers=4) as pool, tqdm(total=len(entries_to_process), desc="生成图片", unit="项") as bar:
         futures = [
             pool.submit(generate_image_bytes, entry, cfg, bottom_font, ctrl_font, middle_font_cache, cache_lock)
-            for entry in entries
+            for entry in entries_to_process
         ]
         for fut in as_completed(futures):
             try:
@@ -257,7 +267,7 @@ def main():
     writer.join()
 
     elapsed = time.time() - start
-    fps = total / elapsed if elapsed > 0 else float('inf')
+    fps = len(entries_to_process) / elapsed if elapsed > 0 else float('inf')
     logging.info(f"图片生成完成，用时 {elapsed:.2f}s，平均 {fps:.2f} 张/秒。")
 
 if __name__ == '__main__':
