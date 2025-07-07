@@ -486,6 +486,18 @@ body {
   display: none;
 }
 
+.step-flex {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.step-flex .section {
+  width: 100%;
+}
+
 @media (max-width: 768px) {
   .container {
     margin: 8px;
@@ -514,5 +526,9 @@ body {
 
   .control-panel {
     flex-direction: column;
+  }
+
+  .step-flex {
+    display: block;
   }
 }
