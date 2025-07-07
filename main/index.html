@@ -218,6 +218,21 @@
           </div>
         </div>
       </div>
+      <!-- 步骤 9: 清理旧文件 -->
+      <div class="section">
+        <div class="section-title">步骤 9: 清理旧文件</div>
+        <div class="step-grid">
+          <div class="step-card" data-step="12" onclick="toggleStep(this, 'checkbox')">
+            <div class="checkbox"></div>
+            <div class="step-header">
+              <div class="step-number">9</div>
+              <div class="step-title">清理旧文件</div>
+            </div>
+            <div class="step-description">删除Unicode.txt文件和color_state.json文件</div>
+            <div class="step-command">Remove-Item -Path "Unicode.txt","color_state.json" -Force -Confirm:$false -ErrorAction SilentlyContinue</div>
+          </div>
+        </div>
+      </div>
       <div class="output-section">
         <div class="output-header">
           <span>生成的PowerShell命令</span>

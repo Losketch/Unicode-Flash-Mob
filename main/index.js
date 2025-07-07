@@ -167,16 +167,16 @@ function generateCommands() {
 
     switch (stepNum) {
       case '1':
-        commands.push('./unicode_flash_mob.exe download');
+        commands.push(step.querySelector('.step-command').textContent);
         break;
       case '2':
-        commands.push('./unicode_flash_mob.exe write-settings');
+        commands.push(step.querySelector('.step-command').textContent);
         break;
       case '3':
-        commands.push('./unicode_flash_mob.exe process-unicode-block');
+        commands.push(step.querySelector('.step-command').textContent);
         break;
       case '4':
-        commands.push('./unicode_flash_mob.exe process-unicode-data');
+        commands.push(step.querySelector('.step-command').textContent);
         break;
       case '5':
         if (fontList.length > 0) {
@@ -193,10 +193,10 @@ function generateCommands() {
         commands.push(`./unicode_flash_mob.exe generate-unicode-range --file combined_unicode_list.txt --start ${startHex} --end ${endHex} --font "${fontPath}"`);
         break;
       case '7':
-        commands.push("Rename-Item 'combined_unicode_list.txt' -NewName 'Unicode.txt' -ErrorAction Stop");
+        commands.push(step.querySelector('.step-command').textContent);
         break;
       case '8':
-        commands.push('./unicode_flash_mob.exe replace-unicode-data 1');
+        commands.push(step.querySelector('.step-command').textContent);
         break;
       case '9':
         commands.push(step.querySelector('.step-command').textContent);
@@ -207,6 +207,9 @@ function generateCommands() {
       case '11':
         commands.push(step.querySelector('.step-command').textContent);
         break;
+      case '12':
+        commands.push(step.querySelector('.step-command').textContent);
+        break;
         break;
     }
     commands.push('');
@@ -214,6 +217,8 @@ function generateCommands() {
 
   commands.push('# 执行完成');
   commands.push('Write-Host "所有选定步骤已完成" -ForegroundColor Green');
+  commands.push('');
+  commands.push('');
 
   output.textContent = commands.join('\n');
 }

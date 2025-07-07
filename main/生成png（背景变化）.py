@@ -4,6 +4,7 @@
 import os
 import sys
 import time
+import json
 import hashlib
 import logging
 import configparser
@@ -95,17 +96,32 @@ class ColorManager:
     """
     根据 description 的哈希值循环分配背景色，保持相同 description 使用相同颜色。
     """
-    def __init__(self, color_cycle: list[tuple[int, int, int, int]]):
+    def __init__(self, color_cycle: list[tuple[int, int, int, int]], state_file: Path):
         self._cycle = color_cycle
         self._mapping: dict[str, int] = {}
         self._counter = 0
         self._lock = Lock()
+        self.state_file = state_file
+
+        self.load_state()
+
+    def load_state(self):
+        if self.state_file.exists():
+            with open(self.state_file, 'r') as f:
+                state = json.load(f)
+                self._mapping = state.get("mapping", {})
+                self._counter = state.get("counter", 0)
+
+    def save_state(self):
+        with open(self.state_file, 'w') as f:
+            json.dump({"mapping": self._mapping, "counter": self._counter}, f)
 
     def get_color(self, description: str) -> tuple[int,int,int,int]:
         with self._lock:
             if description not in self._mapping:
                 self._mapping[description] = self._counter
                 self._counter = (self._counter + 1) % len(self._cycle)
+                self.save_state()
             idx = self._mapping[description]
         return self._cycle[idx]
 
@@ -275,7 +291,7 @@ def main():
     # 过滤已存在的条目
     entries_to_process = [entry for entry in entries if entry.code_str not in existing_entries]
 
-    color_mgr = ColorManager(cfg.color_cycle)
+    color_mgr = ColorManager(cfg.color_cycle, Path('color_state.json'))
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
     try:
         ctrl_font = ImageFont.truetype(str(cfg.ctrl_font_file), cfg.middle_font_size)
