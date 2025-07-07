@@ -4,7 +4,7 @@ param()
 
 Set-Location -Path $PSScriptRoot
 
-$html = Join-Path $PSScriptRoot 'index.html'
+$html = Join-Path $PSScriptRoot 'ui/index.html'
 if (Test-Path $html) {
     Start-Process -FilePath $html
 } else {
@@ -20,25 +20,26 @@ Write-Host '
 function Invoke-REPL {
     $buffer = @()
     while ($true) {
-        $prompt = if ($buffer.Count -eq 0) { 'PS> ' } else { '... ' }
-        try {
-            $line = Read-Host -Prompt $prompt
+        $cwd = (Get-Location).Path
+
+        if ($buffer.Count -eq 0) {
+            $prompt = "PS $cwd> "
         }
-        catch {
-            break
+        else {
+            $prompt = ">> "
         }
 
+        Write-Host -NoNewline $prompt
+        $line = [System.Console]::ReadLine()
+
+        if ($line -eq $null) { break }
         if ($line -eq 'exit' -and $buffer.Count -eq 0) { break }
 
         if ([string]::IsNullOrWhiteSpace($line)) {
             if ($buffer.Count -gt 0) {
-                $scriptBlock = [ScriptBlock]::Create($buffer -join "`n")
-                try {
-                    & $scriptBlock
-                }
-                catch {
-                    Write-Host "执行出错： $_" -ForegroundColor Red
-                }
+                $sb = [ScriptBlock]::Create($buffer -join "`n")
+                try { & $sb }
+                catch { Write-Host "执行出错：$_" -ForegroundColor Red }
                 $buffer.Clear()
             }
         }
@@ -50,4 +51,5 @@ function Invoke-REPL {
 
 Invoke-REPL
 
+Write-Host ''
 Write-Host '已退出交互模式。' -ForegroundColor Green
