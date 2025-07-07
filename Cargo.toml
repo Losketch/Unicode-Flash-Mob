@@ -1,6 +1,6 @@
 [package]
 name = "unicode_flash_mob"
-version = "2.0.3"
+version = "2.0.4"
 edition = "2021"
 build = "src/build.rs"
 
