@@ -11,14 +11,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from Config import Config
-
-def setup_logging():
-    logging.basicConfig(
-        format='[%(asctime)s] - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S',
-        level=logging.INFO
-    )
+from Module import Config, setup_logging
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(base_dir)

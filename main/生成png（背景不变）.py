@@ -4,9 +4,7 @@
 import os
 import sys
 import time
-import hashlib
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock, Thread
 from queue import Queue
@@ -16,54 +14,11 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(__file__))
 
 from control_map import get_char, CTRLS
-from Config import Config
+from Module import Config, UnicodeEntry, load_unicode_entries, setup_logging, blend_colors, writer_thread_fn
 
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
-
-@dataclass
-class UnicodeEntry:
-    font_path: Path
-    code_str: str
-    description: str
-
-
-def load_unicode_entries(path: Path) -> list[UnicodeEntry]:
-    """
-    读取新的 Unicode.txt 格式，每行格式：
-      "font_path";"U+xxxx";"Description"
-    去除空行，拆分三段，去除两端引号后返回 UnicodeEntry 列表。
-    """
-    entries: list[UnicodeEntry] = []
-    for raw in path.read_text(encoding='utf-8').splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        parts = [p.strip().strip('"') for p in line.split(';', 2)]
-        if len(parts) == 2:
-            parts.append('')
-        elif len(parts) != 3:
-            raise ValueError(f"行格式错误（期望 2 或 3 段，用 ; 分隔）: {line!r}")
-        font_path, code_str, desc = parts
-        entries.append(UnicodeEntry(Path(font_path), code_str, desc))
-    return entries
-
-
-def setup_logging():
-    logging.basicConfig(
-        format='[%(asctime)s] - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S',
-        level=logging.INFO
-    )
-
-
-def blend_colors(fg_color, bg_color, alpha_ratio):
-    """计算前景色与背景色的叠加结果"""
-    r = int(fg_color[0] * alpha_ratio + bg_color[0] * (1 - alpha_ratio))
-    g = int(fg_color[1] * alpha_ratio + bg_color[1] * (1 - alpha_ratio))
-    b = int(fg_color[2] * alpha_ratio + bg_color[2] * (1 - alpha_ratio))
-    return (r, g, b, 255)
 
 def generate_image_bytes(
     entry: UnicodeEntry,
@@ -159,19 +114,6 @@ def generate_image_bytes(
 
     out_path = cfg.output_dir / f"image_{entry.code_str}.png"
     return data, out_path
-
-def writer_thread_fn(q: Queue):
-    """单线程顺序写入磁盘，减少 HDD 随机寻道。"""
-    while True:
-        item = q.get()
-        if item is None:
-            q.task_done()
-            break
-        data, out_path = item
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, 'wb') as f:
-            f.write(data)
-        q.task_done()
 
 def main():
     setup_logging()
