@@ -6,7 +6,6 @@ import sys
 import time
 import hashlib
 import logging
-import configparser
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock, Thread
@@ -17,49 +16,10 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(__file__))
 
 from control_map import get_char, CTRLS
+from Config import Config
+
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
-
-
-@dataclass
-class Config:
-    unicode_file: Path
-    output_dir: Path
-    font_files: list[Path]
-    ctrl_font_file: Path
-    bottom_font_file: Path
-    middle_font_size: int
-    bottom_font_size: int
-    text_position: tuple[int, int]
-    middle_font_color: tuple[int, int, int, int]
-    image_size: tuple[int, int]
-    background_color: tuple[int, int, int, int]
-
-    @classmethod
-    def load(cls, ini_path: Path) -> 'Config':
-        parser = configparser.ConfigParser()
-        parser.read(ini_path, encoding='utf-8')
-
-        s = parser['Settings']
-        def get_tuple(key, fallback, typ=int):
-            return tuple(typ(x) for x in s.get(key, fallback).split(','))
-
-        return Config(
-            unicode_file=Path.cwd() / 'Unicode.txt',
-            output_dir=Path.cwd() / 'png',
-            font_files=[Path.cwd() / 'font.ttf'],
-            ctrl_font_file=Path(s.get('ctrl_font_file', 'Ctrl-Ctrl.ttf')),
-            bottom_font_file=Path.cwd() / 'PressStart2P-1.ttf',
-            middle_font_size=int(s.get('middle_font_size', '512')),
-            bottom_font_size=int(s.get('bottom_font_size', '19')),
-            text_position=(
-                int(s.get('text_position_x', '0')),
-                int(s.get('text_position_y', '0'))
-            ),
-            middle_font_color=get_tuple('middle_font_color', '255,255,255,255'),
-            image_size=(1920, 1080),
-            background_color=get_tuple('background_color', '0,0,0,255')
-        )
 
 
 @dataclass
@@ -215,7 +175,7 @@ def writer_thread_fn(q: Queue):
 
 def main():
     setup_logging()
-    cfg = Config.load(Path('settings.ini'))
+    cfg = Config()
     cfg.output_dir.mkdir(exist_ok=True)
 
     # 解析已存在的 PNG 文件，记录已处理的代码点

@@ -6,9 +6,12 @@ import platform
 import subprocess
 import re
 import sys
-import configparser
 import logging
 import tempfile
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from Config import Config
 
 def setup_logging():
     logging.basicConfig(
@@ -151,23 +154,9 @@ def get_frame_rate():
         except ValueError:
             logging.warning("无效的输入，请输入一个数字。")
 
-def load_settings(config_file=os.path.join(base_dir, 'settings.ini')):
-    config = configparser.ConfigParser()
-    config_path = os.path.join(base_dir, 'settings.ini')
-
-    if not os.path.exists(config_path):
-        logging.warning(f"警告：配置文件 '{config_path}' 不存在。将使用默认音乐文件名。")
-        return None
-
-    try:
-        config.read(config_path, encoding='utf-8')
-        return config
-    except configparser.Error as e:
-        logging.error(f"读取配置文件 '{config_path}' 时出错：{e}")
-        return None
-
 def main():
     setup_logging()
+    cfg = Config()
     script_path = os.path.realpath(__file__)
     logging.info(f"脚本路径: {script_path}")
     logging.info(f"当前工作目录: {os.getcwd()}")
@@ -226,16 +215,7 @@ def main():
 
     add_music_choice = input("\n是否要为视频添加音乐? (y/n): ").strip().lower()
     if add_music_choice == 'y':
-        config = load_settings()
-        music_file_name_from_config = None
-        if config and 'Paths' in config and 'music_file' in config['Paths']:
-            music_file_name_from_config = config['Paths']['music_file']
-            logging.info(f"从配置文件中读取到音乐文件名为: {music_file_name_from_config}")
-        else:
-            logging.warning("未能在配置文件中找到 'music_file' 设置，将使用默认值 'DUTM.mp3'。")
-            music_file_name_from_config = 'DUTM.mp3'
-
-        music_file = os.path.join(base_dir, music_file_name_from_config)
+        music_file = cfg.music_file
 
         if os.path.exists(music_file):
             output_with_music = os.path.join(output_dir, output_file_name + '_music.mp4')
