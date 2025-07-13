@@ -94,7 +94,10 @@ def generate_image_bytes(
 
     # 底部文字
     if entry.description:
-        desc = entry.description.replace('|', '\n')
+        seps = ['|', '";"']
+        desc = entry.description
+        for ch in seps:
+            desc = desc.replace(ch, '\n')
         bottom_text = f"{entry.code_str}\n{desc}"
     else:
         bottom_text = entry.code_str
