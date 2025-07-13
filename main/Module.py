@@ -77,14 +77,37 @@ class ColorManager:
 
     def load_state(self):
         if self.state_file.exists():
-            with open(self.state_file, 'r') as f:
-                state = json.load(f)
-                self._mapping = state.get("mapping", {})
-                self._counter = state.get("counter", 0)
+            try:
+                if self.state_file.stat().st_size == 0:
+                    logging.warning(f"颜色状态文件 {self.state_file} 为空，使用默认设置")
+                    return
+
+                with open(self.state_file, 'r', encoding='utf-8') as f:
+                    state = json.load(f)
+                    self._mapping = state.get("mapping", {})
+                    self._counter = state.get("counter", 0)
+                    logging.info(f"成功加载颜色状态，包含 {len(self._mapping)} 个映射")
+            except json.JSONDecodeError as e:
+                logging.error(f"颜色状态文件格式错误：{e}，使用默认设置")
+                backup_file = self.state_file.with_suffix('.json.backup')
+                self.state_file.rename(backup_file)
+                logging.info(f"已将损坏的文件备份为 {backup_file}")
+            except Exception as e:
+                logging.error(f"加载颜色状态文件时出错：{e}，使用默认设置")
 
     def save_state(self):
-        with open(self.state_file, 'w') as f:
-            json.dump({"mapping": self._mapping, "counter": self._counter}, f, indent=2)
+        try:
+            temp_file = self.state_file.with_suffix('.json.tmp')
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump({"mapping": self._mapping, "counter": self._counter}, f, indent=2, ensure_ascii=False)
+
+            temp_file.replace(self.state_file)
+
+        except Exception as e:
+            logging.error(f"保存颜色状态文件时出错：{e}")
+            temp_file = self.state_file.with_suffix('.json.tmp')
+            if temp_file.exists():
+                temp_file.unlink()
 
     def _hex_to_rgba(self, hex_color: str) -> tuple[int, int, int, int]:
         """将十六进制颜色转换为 RGBA 元组"""
