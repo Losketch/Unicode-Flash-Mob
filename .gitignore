@@ -10,7 +10,6 @@ main/*.m4a
 main/DecipherUnicode*.txt
 main/Unicode*.txt
 main/color_state.json
-main/settings.ini
 
 main/ffmpeg/
 main/python/
