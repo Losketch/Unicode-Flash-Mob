@@ -41,7 +41,7 @@ fn parse_unicode_data<P: AsRef<Path>>(input: P, output: P) -> Result<()> {
         } else if raw_desc.contains("Last") {
             if let Some(start) = range_start.take() {
                 for cp in start..=code_point {
-                    write!(writer, "U+{:04X}-{}\r\n", cp, range_desc)
+                    write!(writer, "U+{:04X}-{}-{:04X}\r\n", cp, range_desc, cp)
                         .context("写入输出失败")?;
                 }
             }

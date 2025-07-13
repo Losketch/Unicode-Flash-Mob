@@ -76,44 +76,47 @@ pub fn extract_unicode_from_fonts(font_paths: &[PathBuf], out_file: Option<&Path
 pub fn replace_unicode(mode: Option<u8>) -> Result<()> {
     let choice = if let Some(m) = mode {
         match m {
-            1 => "1".to_string(),
-            2 => "2".to_string(),
-            _ => bail!("无效模式：{}，仅支持 1 或 2", m),
+            1 => 1,
+            2 => 2,
+            3 => 3,
+            _ => bail!("无效模式：{}，仅支持 1、2 或 3", m),
         }
     } else {
         loop {
             println!(
                 "\n请选择生成图片左下角说明文件：\n\
-                 [1]  使用 `{}` 各个字符区块\n\
-                 [2]  使用 `{}` 每个字符的详细信息\n\
+                 [1] 使用 `{}` 各个字符区块\n\
+                 [2] 使用 `{}` 每个字符的详细信息\n\
+                 [3] 先区块后详细信息（区块|详细）\n\
                  你选择：",
                 BLOCKS_FILE, DATA_FILE
             );
             let mut input = String::new();
-            io::stdin()
-                .read_line(&mut input)
-                .context("读取用户输入失败")?;
+            io::stdin().read_line(&mut input)?;
             match input.trim() {
-                "1" => break "1".to_string(),
-                "2" => break "2".to_string(),
+                "1" => break 1,
+                "2" => break 2,
+                "3" => break 3,
                 _ => {
-                    println!("输入非法，请输入 1 或 2。");
+                    println!("输入非法，请输入 1、2 或 3。");
                     continue;
                 }
             }
         }
     };
 
-    let unicode_file = if choice == "1" {
-        BLOCKS_FILE
+    let blocks_map = if choice == 1 || choice == 3 {
+        read_unicode_file(BLOCKS_FILE).with_context(|| format!("解析文件 `{}` 失败", BLOCKS_FILE))?
     } else {
-        DATA_FILE
+        HashMap::new()
+    };
+    let data_map = if choice == 2 || choice == 3 {
+        read_unicode_file(DATA_FILE).with_context(|| format!("解析文件 `{}` 失败", DATA_FILE))?
+    } else {
+        HashMap::new()
     };
 
-    let unicode_map =
-        read_unicode_file(unicode_file).with_context(|| format!("解析文件 `{}` 失败", unicode_file))?;
-
-    replace_content(TEMP_FILE, &unicode_map)
+    replace_content(TEMP_FILE, choice, &blocks_map, &data_map)
         .with_context(|| format!("写入文件 `{}` 失败", TEMP_FILE))?;
 
     println!("替换完成，结果已写入 `{}`", TEMP_FILE);
@@ -137,10 +140,14 @@ fn read_unicode_file(path: &str) -> Result<HashMap<String, String>> {
     Ok(map)
 }
 
-fn replace_content(path: &str, unicode_map: &HashMap<String, String>) -> Result<()> {
+fn replace_content(
+    path: &str,
+    choice: u8,
+    blocks_map: &HashMap<String, String>,
+    data_map: &HashMap<String, String>,
+) -> Result<()> {
     let f = fs::File::open(path)?;
     let reader = BufReader::new(f);
-
     let re = Regex::new(r#""(U\+[0-9A-Fa-f]{4,6})""#).unwrap();
 
     let mut output = Vec::new();
@@ -148,10 +155,37 @@ fn replace_content(path: &str, unicode_map: &HashMap<String, String>) -> Result<
         let line = line?;
         let replaced = re.replace_all(&line, |caps: &regex::Captures| {
             let code = &caps[1];
-            if let Some(desc) = unicode_map.get(code) {
-                format!("\"{}\";\"{}\"", code, desc)
-            } else {
-                caps[0].to_string()
+            let block_desc = blocks_map.get(code);
+            let data_desc = data_map.get(code);
+
+            match choice {
+                1 => {
+                    // 仅区块
+                    if let Some(b) = block_desc {
+                        format!("\"{}\";\"{}\"", code, b)
+                    } else {
+                        caps[0].to_string()
+                    }
+                }
+                2 => {
+                    // 仅详细信息
+                    if let Some(d) = data_desc {
+                        format!("\"{}\";\"{}\"", code, d)
+                    } else {
+                        caps[0].to_string()
+                    }
+                }
+                3 => {
+                    // 区块 | 详细
+                    let b = block_desc.map(|s| s.as_str()).unwrap_or("");
+                    let d = data_desc.map(|s| s.as_str()).unwrap_or("");
+                    if !b.is_empty() || !d.is_empty() {
+                        format!("\"{}\";\"{}|{}\"", code, b, d)
+                    } else {
+                        caps[0].to_string()
+                    }
+                }
+                _ => caps[0].to_string(),
             }
         });
         output.push(replaced.to_string());
@@ -159,8 +193,14 @@ fn replace_content(path: &str, unicode_map: &HashMap<String, String>) -> Result<
 
     // 对结果进行排序
     output.sort_by(|a, b| {
-        let code_a = re.captures(a).and_then(|caps| caps.get(1)).map_or(0, |m| u32::from_str_radix(&m.as_str()[2..], 16).unwrap());
-        let code_b = re.captures(b).and_then(|caps| caps.get(1)).map_or(0, |m| u32::from_str_radix(&m.as_str()[2..], 16).unwrap());
+        let code_a = re.captures(a)
+            .and_then(|c| c.get(1))
+            .and_then(|m| u32::from_str_radix(&m.as_str()[2..], 16).ok())
+            .unwrap_or(0);
+        let code_b = re.captures(b)
+            .and_then(|c| c.get(1))
+            .and_then(|m| u32::from_str_radix(&m.as_str()[2..], 16).ok())
+            .unwrap_or(0);
         code_a.cmp(&code_b)
     });
 

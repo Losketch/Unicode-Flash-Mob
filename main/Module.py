@@ -118,22 +118,30 @@ class ColorManager:
             hex_color = hex_color + 'FF'
         elif len(hex_color) != 8:  # #RRGGBBAA
             raise ValueError(f"Invalid hex color format: {hex_color}")
-        
+
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
         a = int(hex_color[6:8], 16)
         return (r, g, b, a)
 
+    def get_key_from_description(self, description: str) -> str:
+        """从描述中提取关键部分,忽略详细信息"""
+        if '|' in description:
+            return description.split('|')[0].strip()
+        else:
+            return description
+
     def get_color(self, description: str) -> tuple[int, int, int, int]:
+        key = self.get_key_from_description(description)
         with self._lock:
-            if description not in self._mapping:
-                self._mapping[description] = self._counter
+            if key not in self._mapping:
+                self._mapping[key] = self._counter
                 self._counter = (self._counter + 1) % len(self._cycle)
                 self.save_state()
-            
-            value = self._mapping[description]
-            
+
+            value = self._mapping[key]
+
             # 如果是字符串（十六进制颜色），直接转换
             if isinstance(value, str):
                 return self._hex_to_rgba(value)
@@ -143,24 +151,30 @@ class ColorManager:
 
     def set_custom_color(self, description: str, color: str):
         """为特定描述设置自定义颜色"""
+        key = self.get_key_from_description(description)
         with self._lock:
-            self._mapping[description] = color
+            self._mapping[key] = color
             self.save_state()
 
     def build_initial_mapping(self, entries: list):
         """根据 Unicode 条目构建初始映射"""
-        descriptions = set()
-        for entry in entries:
-            if entry.description:
-                descriptions.add(entry.description)
-        
-        with self._lock:
-            for desc in sorted(descriptions):
-                if desc not in self._mapping:
-                    self._mapping[desc] = self._counter
-                    self._counter = (self._counter + 1) % len(self._cycle)
-            self.save_state()
-        
+        sorted_entries = sorted(entries, key=lambda x: int(x.code_str[2:], 16))
+
+        seen = set()
+        descriptions = []
+        for entry in sorted_entries:
+            key = self.get_key_from_description(entry.description)
+            if key not in seen:
+                descriptions.append(key)
+                seen.add(key)
+
+            with self._lock:
+                for desc in descriptions:
+                    if desc not in self._mapping:
+                        self._mapping[desc] = self._counter
+                        self._counter = (self._counter + 1) % len(self._cycle)
+                self.save_state()
+
         logging.info(f"构建了 {len(descriptions)} 个描述的颜色映射")
 
 
