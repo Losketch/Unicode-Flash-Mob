@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import json
 import logging
 from queue import Queue
 from pathlib import Path
+from threading import Lock
 from dataclasses import dataclass
 
 @dataclass
@@ -57,6 +59,86 @@ class UnicodeEntry:
     font_path: Path
     code_str: str
     description: str
+
+
+class ColorManager:
+    """
+    根据 description 的哈希值循环分配背景色，保持相同 description 使用相同颜色。
+    支持预定义映射和直接颜色值。
+    """
+    def __init__(self, color_cycle: list[tuple[int, int, int, int]], state_file: Path):
+        self._cycle = color_cycle
+        self._mapping: dict[str, int | str] = {}
+        self._counter = 0
+        self._lock = Lock()
+        self.state_file = state_file
+
+        self.load_state()
+
+    def load_state(self):
+        if self.state_file.exists():
+            with open(self.state_file, 'r') as f:
+                state = json.load(f)
+                self._mapping = state.get("mapping", {})
+                self._counter = state.get("counter", 0)
+
+    def save_state(self):
+        with open(self.state_file, 'w') as f:
+            json.dump({"mapping": self._mapping, "counter": self._counter}, f, indent=2)
+
+    def _hex_to_rgba(self, hex_color: str) -> tuple[int, int, int, int]:
+        """将十六进制颜色转换为 RGBA 元组"""
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) == 3:  # #RGB
+            hex_color = ''.join([c*2 for c in hex_color]) + 'FF'
+        elif len(hex_color) == 6:  # #RRGGBB
+            hex_color = hex_color + 'FF'
+        elif len(hex_color) != 8:  # #RRGGBBAA
+            raise ValueError(f"Invalid hex color format: {hex_color}")
+        
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        a = int(hex_color[6:8], 16)
+        return (r, g, b, a)
+
+    def get_color(self, description: str) -> tuple[int, int, int, int]:
+        with self._lock:
+            if description not in self._mapping:
+                self._mapping[description] = self._counter
+                self._counter = (self._counter + 1) % len(self._cycle)
+                self.save_state()
+            
+            value = self._mapping[description]
+            
+            # 如果是字符串（十六进制颜色），直接转换
+            if isinstance(value, str):
+                return self._hex_to_rgba(value)
+            # 如果是数字，使用颜色循环
+            else:
+                return self._cycle[value % len(self._cycle)]
+
+    def set_custom_color(self, description: str, color: str):
+        """为特定描述设置自定义颜色"""
+        with self._lock:
+            self._mapping[description] = color
+            self.save_state()
+
+    def build_initial_mapping(self, entries: list):
+        """根据 Unicode 条目构建初始映射"""
+        descriptions = set()
+        for entry in entries:
+            if entry.description:
+                descriptions.add(entry.description)
+        
+        with self._lock:
+            for desc in sorted(descriptions):
+                if desc not in self._mapping:
+                    self._mapping[desc] = self._counter
+                    self._counter = (self._counter + 1) % len(self._cycle)
+            self.save_state()
+        
+        logging.info(f"构建了 {len(descriptions)} 个描述的颜色映射")
 
 
 def load_unicode_entries(path: Path) -> list[UnicodeEntry]:
