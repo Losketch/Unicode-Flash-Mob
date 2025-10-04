@@ -20,6 +20,8 @@ from Module import Config, UnicodeEntry, ColorManager, load_unicode_entries, set
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
+Image.MAX_IMAGE_PIXELS = None
+# Image.MEMORY_LIMIT = 1024 * 1024 * 1024  # 1GB
 
 def generate_image_bytes(
     entry: UnicodeEntry,
@@ -32,6 +34,7 @@ def generate_image_bytes(
 ) -> tuple[bytes, Path]:
     """
     生成图片并返回 PNG bytes 以及目标路径，写入线程负责落盘。
+    减少内存分配，提高性能
     """
     try:
         cp = int(entry.code_str.strip()[2:], 16)
@@ -47,8 +50,12 @@ def generate_image_bytes(
     else:
         bg_color = cfg.background_color
 
-    # 新建背景
-    img = Image.new('RGBA', cfg.image_size, bg_color)
+    # 新建背景 - 使用 RGB 模式可能更快，如果不需要透明度
+    if bg_color[3] == 255:
+        img = Image.new('RGB', cfg.image_size, bg_color[:3])
+    else:
+        img = Image.new('RGBA', cfg.image_size, bg_color)
+    
     draw = ImageDraw.Draw(img)
 
     # 中间字体（按顺序尝试加载支持的字体）
@@ -95,7 +102,11 @@ def generate_image_bytes(
 
     alpha = cfg.middle_font_color[3]/255
     fg = cfg.middle_font_color[:3]
-    blended = blend_colors(fg, bg_color[:3], alpha)
+    if img.mode == 'RGB':
+        blended = blend_colors(fg, bg_color[:3], alpha)
+    else:
+        blended = blend_colors(fg, bg_color[:3], alpha)
+    
     draw.text((x,y), char, font=middle_font, fill=blended)
 
     # 底部文字
@@ -116,9 +127,12 @@ def generate_image_bytes(
 
     # 保存
     buf = BytesIO()
-    img.save(buf, format='PNG', compress_level=2)  # compress_level=2 较快, optimize=True
+    # 使用较低的压缩级别以获得更快的保存速度
+    # optimize=False 可以更快，但文件稍大
+    img.save(buf, format='PNG', compress_level=1, optimize=False)
     data = buf.getvalue()
 
+    # 清理资源
     img.close()
     buf.close()
     del img, draw, buf
@@ -140,6 +154,12 @@ def parse_args():
         default=4,
         help='并发线程数，默认为 4'
     )
+    parser.add_argument(
+        '--png-quality',
+        choices=['fast', 'balanced', 'best'],
+        default='balanced',
+        help='PNG 压缩质量：fast(速度优先), balanced(平衡), best(质量优先)'
+    )
     return parser.parse_args()
 
 def main():
@@ -148,6 +168,17 @@ def main():
     setup_logging()
     cfg = Config()
     cfg.output_dir.mkdir(exist_ok=True)
+
+    # 根据质量参数调整 PNG 设置
+    if args.png_quality == 'fast':
+        cfg.png_compress_level = 1
+        cfg.png_optimize = False
+    elif args.png_quality == 'balanced':
+        cfg.png_compress_level = 2
+        cfg.png_optimize = False
+    else:  # best
+        cfg.png_compress_level = 6
+        cfg.png_optimize = True
 
     # 解析已存在的 PNG 文件，记录已处理的代码点
     existing_entries = {}
@@ -180,7 +211,7 @@ def main():
         logging.info("所有图片已存在，无需重新生成")
         return
 
-    logging.info(f"需要生成 {len(entries_to_process)} 张图片")
+    logging.info(f"需要生成 {len(entries_to_process)} 张图片（PNG 质量: {args.png_quality}）")
 
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
     try:
@@ -192,7 +223,7 @@ def main():
     middle_font_cache: dict[Path, ImageFont.FreeTypeFont | None] = {}
 
     # HDD 磁盘可以适当增加队列大小，减少写入频率
-    q: Queue = Queue(maxsize=100)
+    q: Queue = Queue(maxsize=200)
     writer = Thread(target=writer_thread_fn, args=(q,), daemon=True)
     writer.start()
 
