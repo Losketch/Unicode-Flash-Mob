@@ -30,7 +30,9 @@ def generate_image_bytes(
     bottom_font: ImageFont.FreeTypeFont,
     ctrl_font: ImageFont.FreeTypeFont,
     middle_font_cache: dict[Path, ImageFont.FreeTypeFont],
-    cache_lock: Lock
+    cache_lock: Lock,
+    overlay_enabled: bool,
+    combining_cps: set[int]
 ) -> tuple[bytes, Path]:
     """
     生成图片并返回 PNG bytes 以及目标路径，写入线程负责落盘。
@@ -106,7 +108,31 @@ def generate_image_bytes(
         blended = blend_colors(fg, bg_color[:3], alpha)
     else:
         blended = blend_colors(fg, bg_color[:3], alpha)
-    
+
+    # 如果开启 overlay 且当前码点是组合类标记，则绘制 ◌ 提示
+    if overlay_enabled and cp in combining_cps:
+        overlay_char = '\u25CC'
+        # 半透明 alpha
+        orig_alpha = cfg.middle_font_color[3] / 255.0
+        overlay_alpha = orig_alpha * 0.5
+        # 颜色混合
+        fg = cfg.middle_font_color[:3]
+        bg = bg_color[:3]
+        overlay_color = blend_colors(fg, bg, overlay_alpha)
+
+        # 计算 overlay_char 的尺寸，并居中
+        obbox = draw.textbbox((0, 0), overlay_char, font=ctrl_font)
+        ow = obbox[2] - obbox[0]
+        oh = obbox[3] - obbox[1]
+
+        img_w, img_h = cfg.image_size
+        main_ascent, main_descent = middle_font.getmetrics()
+        baseline_y = int(H/2 + (main_ascent - main_descent)/2) + cfg.text_position[1]
+        ox = (img_w - ow)//2 + cfg.text_position[0]
+        oy = baseline_y - main_ascent
+        # oy = (img_h - oh)//2 - obbox[1] + cfg.text_position[1]
+        draw.text((ox, oy), overlay_char, font=ctrl_font, fill=overlay_color)
+
     draw.text((x,y), char, font=middle_font, fill=blended)
 
     # 底部文字
@@ -160,11 +186,47 @@ def parse_args():
         default='balanced',
         help='PNG 压缩质量：fast(速度优先), balanced(平衡), best(质量优先)'
     )
+    parser.add_argument(
+        '--force',
+        '-f',
+        action='store_true',
+        help='忽略已存在的 PNG，强制重新生成并覆盖'
+    )
+    parser.add_argument(
+        '--disable-comb-overlay',
+        action='store_true',
+        help='禁用组合类标记(Mn/Mc/Me)的◌覆盖提示'
+    )
     return parser.parse_args()
 
 def main():
     args = parse_args()
-    
+    # 1) 读取 UnicodeData.txt，收集 Mn/Mc/Me 码点
+    def load_combining_marks(path: Path) -> set[int]:
+        cps = set()
+        for line in path.read_text(encoding='utf-8').splitlines():
+            if not line or line.startswith('#'):
+                continue
+            fields = line.split(';')
+            if len(fields) < 3:
+                continue
+            cp = int(fields[0], 16)
+            category = fields[2]
+            if category in ('Mn', 'Mc', 'Me'):
+                cps.add(cp)
+        return cps
+
+    unicode_data_path = Path.cwd() / 'UnicodeData.txt'
+    if unicode_data_path.exists():
+        combining_cps = load_combining_marks(unicode_data_path)
+        logging.info(f"从 UnicodeData.txt 加载了 {len(combining_cps)} 个组合标记")
+    else:
+        combining_cps = set()
+        logging.warning(f"UnicodeData.txt 未找到，组合覆盖功能将无法生效")
+
+    # 2) 是否禁用覆盖
+    overlay_enabled = not args.disable_comb_overlay
+
     setup_logging()
     cfg = Config()
     cfg.output_dir.mkdir(exist_ok=True)
@@ -180,7 +242,7 @@ def main():
         cfg.png_compress_level = 6
         cfg.png_optimize = True
 
-    # 解析已存在的 PNG 文件，记录已处理的代码点
+    # 解析已存在的 PNG 文件，记录已处理的代码点（只有在非 force 模式下才用）
     existing_entries = {}
     for png_file in cfg.output_dir.glob('*.png'):
         if png_file.stat().st_size >= 1000:
@@ -204,14 +266,18 @@ def main():
     else:
         logging.info(f"使用固定背景颜色模式: {cfg.background_color}")
 
-    # 过滤已存在的条目
-    entries_to_process = [entry for entry in entries if entry.code_str not in existing_entries]
-    
-    if not entries_to_process:
-        logging.info("所有图片已存在，无需重新生成")
-        return
+    # 根据 --force 决定是否跳过已存在的
+    if args.force:
+        logging.info("启用 force 模式：忽略已存在的文件，全部重新生成")
+        entries_to_process = entries
+    else:
+        entries_to_process = [entry for entry in entries if entry.code_str not in existing_entries]
+        if not entries_to_process:
+            logging.info("所有图片已存在，无需重新生成")
+            return
 
-    logging.info(f"需要生成 {len(entries_to_process)} 张图片（PNG 质量: {args.png_quality}）")
+    logging.info(f"需要生成 {len(entries_to_process)} 张图片（PNG 质量: {args.png_quality}）" +
+                 ("" if not args.force else " （force 模式：覆盖所有文件）"))
 
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
     try:
@@ -232,7 +298,13 @@ def main():
     
     with ThreadPoolExecutor(max_workers=args.workers) as pool, tqdm(total=len(entries_to_process), desc="生成图片", unit="项") as bar:
         futures = [
-            pool.submit(generate_image_bytes, entry, cfg, color_mgr, bottom_font, ctrl_font, middle_font_cache, cache_lock)
+            pool.submit(
+                generate_image_bytes,
+                entry, cfg, color_mgr,
+                bottom_font, ctrl_font,
+                middle_font_cache, cache_lock,
+                overlay_enabled, combining_cps
+            )
             for entry in entries_to_process
         ]
         for fut in as_completed(futures):
