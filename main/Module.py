@@ -7,6 +7,8 @@ from queue import Queue
 from pathlib import Path
 from threading import Lock
 from dataclasses import dataclass
+from functools import lru_cache
+import os
 
 @dataclass
 class Config:
@@ -24,6 +26,9 @@ class Config:
     background_color: tuple[int, int, int, int] = (0,0,0,255)
     color_cycle: list[tuple[int, int, int, int]] = None
 
+    png_compress_level: int = 2
+    png_optimize: bool = False
+
     def __post_init__(self):
         if self.font_files is None:
             self.font_files = [Path.cwd() / 'font.ttf']
@@ -39,19 +44,26 @@ class Config:
                 "#FF9AAAFF", "#FCAB9AFF", "#FBC99AFF",
                 "#FDEE99FF", "#EEFE99FF", "#CFFF9BFF",
             ]
-            self.color_cycle = [self._hex_to_rgba(h) for h in hex_cycle]
+            self.color_cycle = [self._hex_to_rgba_fast(h) for h in hex_cycle]
 
-    def _hex_to_rgba(self, s: str) -> tuple[int,int,int,int]:
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def _hex_to_rgba_fast(s: str) -> tuple[int,int,int,int]:
+        """优化的hex转RGBA，使用缓存避免重复计算"""
         s = s.lstrip('#')
         if len(s) == 6:
             s = s + 'FF'
         if len(s) != 8:
             raise ValueError(f"Invalid hex color: {s!r}")
-        r = int(s[0:2], 16)
-        g = int(s[2:4], 16)
-        b = int(s[4:6], 16)
-        a = int(s[6:8], 16)
-        return (r, g, b, a)
+        return (
+            int(s[0:2], 16),
+            int(s[2:4], 16), 
+            int(s[4:6], 16),
+            int(s[6:8], 16)
+        )
+
+    def _hex_to_rgba(self, s: str) -> tuple[int,int,int,int]:
+        return self._hex_to_rgba_fast(s)
 
 
 @dataclass
@@ -72,6 +84,13 @@ class ColorManager:
         self._counter = 0
         self._lock = Lock()
         self.state_file = state_file
+
+        self._color_cache: dict[str, tuple[int, int, int, int]] = {}
+        self._key_cache: dict[str, str] = {}
+
+        self._dirty = False
+        self._save_batch_size = 100
+        self._changes_count = 0
 
         self.load_state()
 
@@ -95,13 +114,23 @@ class ColorManager:
             except Exception as e:
                 logging.error(f"加载颜色状态文件时出错：{e}，使用默认设置")
 
-    def save_state(self):
+    def save_state(self, force=False):
+        if not force and not self._dirty:
+            return
+            
         try:
             temp_file = self.state_file.with_suffix('.json.tmp')
             with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump({"mapping": self._mapping, "counter": self._counter}, f, indent=2, ensure_ascii=False)
+                json.dump({
+                    "mapping": self._mapping, 
+                    "counter": self._counter
+                }, f, indent=2, ensure_ascii=False)
 
+            if os.name == 'nt':  # Windows
+                if self.state_file.exists():
+                    self.state_file.unlink()
             temp_file.replace(self.state_file)
+            self._dirty = False
 
         except Exception as e:
             logging.error(f"保存颜色状态文件时出错：{e}")
@@ -109,7 +138,8 @@ class ColorManager:
             if temp_file.exists():
                 temp_file.unlink()
 
-    def _hex_to_rgba(self, hex_color: str) -> tuple[int, int, int, int]:
+    @lru_cache(maxsize=512)
+    def _hex_to_rgba_cached(self, hex_color: str) -> tuple[int, int, int, int]:
         """将十六进制颜色转换为 RGBA 元组"""
         hex_color = hex_color.lstrip('#')
         if len(hex_color) == 3:  # #RGB
@@ -119,63 +149,113 @@ class ColorManager:
         elif len(hex_color) != 8:  # #RRGGBBAA
             raise ValueError(f"Invalid hex color format: {hex_color}")
 
-        r = int(hex_color[0:2], 16)
-        g = int(hex_color[2:4], 16)
-        b = int(hex_color[4:6], 16)
-        a = int(hex_color[6:8], 16)
-        return (r, g, b, a)
+        return (
+            int(hex_color[0:2], 16),
+            int(hex_color[2:4], 16),
+            int(hex_color[4:6], 16),
+            int(hex_color[6:8], 16)
+        )
 
     def get_key_from_description(self, description: str) -> str:
         """从描述中提取关键部分,忽略详细信息"""
+        if description in self._key_cache:
+            return self._key_cache[description]
+            
         if '|' in description:
-            return description.split('|')[0].strip()
+            key = description.split('|')[0].strip()
         else:
-            return description
+            key = description
+
+        if len(self._key_cache) < 10000:
+            self._key_cache[description] = key
+        return key
 
     def get_color(self, description: str) -> tuple[int, int, int, int]:
         key = self.get_key_from_description(description)
+
+        if key in self._mapping:
+            value = self._mapping[key]
+
+            cache_key = f"{key}_{value}"
+            if cache_key in self._color_cache:
+                return self._color_cache[cache_key]
+
+            if isinstance(value, str):
+                color = self._hex_to_rgba_cached(value)
+            else:
+                color = self._cycle[value % len(self._cycle)]
+
+            if len(self._color_cache) < 5000:
+                self._color_cache[cache_key] = color
+            return color
+
         with self._lock:
             if key not in self._mapping:
                 self._mapping[key] = self._counter
                 self._counter = (self._counter + 1) % len(self._cycle)
-                self.save_state()
+                self._dirty = True
+                self._changes_count += 1
+
+                if self._changes_count >= self._save_batch_size:
+                    self.save_state()
+                    self._changes_count = 0
 
             value = self._mapping[key]
 
-            # 如果是字符串（十六进制颜色），直接转换
             if isinstance(value, str):
-                return self._hex_to_rgba(value)
-            # 如果是数字，使用颜色循环
+                color = self._hex_to_rgba_cached(value)
             else:
-                return self._cycle[value % len(self._cycle)]
+                color = self._cycle[value % len(self._cycle)]
+            
+            cache_key = f"{key}_{value}"
+            if len(self._color_cache) < 5000:
+                self._color_cache[cache_key] = color
+            return color
 
     def set_custom_color(self, description: str, color: str):
         """为特定描述设置自定义颜色"""
         key = self.get_key_from_description(description)
         with self._lock:
             self._mapping[key] = color
-            self.save_state()
+            self._dirty = True
+            self._changes_count += 1
+
+            cache_keys_to_remove = [k for k in self._color_cache.keys() if k.startswith(f"{key}_")]
+            for k in cache_keys_to_remove:
+                del self._color_cache[k]
+            
+            if self._changes_count >= self._save_batch_size:
+                self.save_state()
+                self._changes_count = 0
 
     def build_initial_mapping(self, entries: list):
         """根据 Unicode 条目构建初始映射"""
-        sorted_entries = sorted(entries, key=lambda x: int(x.code_str[2:], 16))
-
         seen = set()
-        descriptions = []
+        unique_descriptions = []
+
+        sorted_entries = sorted(entries, key=lambda x: int(x.code_str[2:], 16))
+        
         for entry in sorted_entries:
             key = self.get_key_from_description(entry.description)
             if key not in seen:
-                descriptions.append(key)
+                unique_descriptions.append(key)
                 seen.add(key)
 
-            with self._lock:
-                for desc in descriptions:
-                    if desc not in self._mapping:
-                        self._mapping[desc] = self._counter
-                        self._counter = (self._counter + 1) % len(self._cycle)
-                self.save_state()
+        with self._lock:
+            for desc in unique_descriptions:
+                if desc not in self._mapping:
+                    self._mapping[desc] = self._counter
+                    self._counter = (self._counter + 1) % len(self._cycle)
+            
+            self._dirty = True
+            self.save_state(force=True)
 
-        logging.info(f"构建了 {len(descriptions)} 个描述的颜色映射")
+        logging.info(f"构建了 {len(unique_descriptions)} 个描述的颜色映射")
+
+    def finalize(self):
+        """完成处理时调用，确保所有更改都已保存"""
+        if self._dirty:
+            self.save_state(force=True)
 
 
 def load_unicode_entries(path: Path) -> list[UnicodeEntry]:
@@ -185,45 +265,76 @@ def load_unicode_entries(path: Path) -> list[UnicodeEntry]:
     去除空行，拆分三段，去除两端引号后返回 UnicodeEntry 列表。
     """
     entries: list[UnicodeEntry] = []
-    for raw in path.read_text(encoding='utf-8').splitlines():
-        line = raw.strip()
+
+    content = path.read_text(encoding='utf-8')
+    lines = content.splitlines()
+    
+    for line in lines:
+        line = line.strip()
         if not line:
             continue
-        parts = [p.strip().strip('"') for p in line.split(';', 2)]
+
+        parts = line.split(';', 2)
         if len(parts) == 2:
             parts.append('')
         elif len(parts) != 3:
             raise ValueError(f"行格式错误（期望 2 或 3 段，用 ; 分隔）: {line!r}")
-        font_path, code_str, desc = parts
+
+        font_path = parts[0].strip().strip('"')
+        code_str = parts[1].strip().strip('"')
+        desc = parts[2].strip().strip('"')
+        
         entries.append(UnicodeEntry(Path(font_path), code_str, desc))
+    
     return entries
 
 
 def setup_logging():
-    logging.basicConfig(
-        format='[%(asctime)s] - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S',
-        level=logging.INFO
-    )
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            format='[%(asctime)s] - %(levelname)s - %(message)s',
+            datefmt='%H:%M:%S',
+            level=logging.INFO
+        )
 
 
-def blend_colors(fg_color, bg_color, alpha_ratio):
-    """计算前景色与背景色的叠加结果"""
-    r = int(fg_color[0] * alpha_ratio + bg_color[0] * (1 - alpha_ratio))
-    g = int(fg_color[1] * alpha_ratio + bg_color[1] * (1 - alpha_ratio))
-    b = int(fg_color[2] * alpha_ratio + bg_color[2] * (1 - alpha_ratio))
-    return (r, g, b, 255)
-
-
-def writer_thread_fn(q: Queue):
+def writer_thread_fn(q: Queue, batch_size: int = 10):
     """单线程顺序写入磁盘，减少 HDD 随机寻道。"""
+    batch = []
+    
     while True:
         item = q.get()
         if item is None:
+            if batch:
+                _write_batch(batch)
             q.task_done()
             break
-        data, out_path = item
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, 'wb') as f:
-            f.write(data)
+            
+        batch.append(item)
+        if len(batch) >= batch_size:
+            _write_batch(batch)
+            batch.clear()
+            
         q.task_done()
+
+
+def _write_batch(batch: list):
+    """批量写入文件"""
+    for data, out_path in batch:
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, 'wb') as f:
+                f.write(data)
+        except Exception as e:
+            logging.error(f"写入文件失败 {out_path}: {e}")
+
+
+@lru_cache(maxsize=1024)
+def blend_colors(fg: tuple[int,int,int], bg: tuple[int,int,int], alpha: float) -> tuple[int,int,int]:
+    """缓存版颜色混合函数"""
+    inv_alpha = 1.0 - alpha
+    return (
+        int(fg[0] * alpha + bg[0] * inv_alpha),
+        int(fg[1] * alpha + bg[1] * inv_alpha),
+        int(fg[2] * alpha + bg[2] * inv_alpha)
+    )
