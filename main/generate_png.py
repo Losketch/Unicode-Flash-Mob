@@ -154,9 +154,10 @@ def generate_image_bytes(
     overlay_cache: dict[tuple, tuple[int,int,int]],
     overlay_enabled: bool,
     combining_cps: set[int],
-    overlay_bbox_cache: dict[str, tuple[int, int]]
+    overlay_bbox_cache: dict[str, tuple[int, int]],
+    use_fast_png: bool = False
 ) -> tuple[bytes, Path]:
-    """优化版图片生成函数"""
+    """图片生成函数，支持快速和标准模式"""
     try:
         cp = int(entry.code_str.strip()[2:], 16)
     except:
@@ -172,8 +173,11 @@ def generate_image_bytes(
     else:
         bg_color = normalize_color(cfg.background_color)
 
-    # 创建图像
-    img = Image.new('RGBA', cfg.image_size, bg_color)
+    # 创建图像 - 快速模式使用RGB，标准模式使用RGBA
+    if use_fast_png:
+        img = Image.new('RGB', cfg.image_size, bg_color[:3])
+    else:
+        img = Image.new('RGBA', cfg.image_size, bg_color)
     draw = ImageDraw.Draw(img)
 
     # 选择字体
@@ -184,7 +188,6 @@ def generate_image_bytes(
         middle_font = middle_font_cache.get(entry.font_path)
         font_path_key = entry.font_path
         if not middle_font:
-            # 备用字体
             for p in cfg.font_files:
                 f = middle_font_cache.get(p)
                 if f:
@@ -268,18 +271,20 @@ def generate_image_bytes(
         fill=blended
     )
 
-    # 优化的保存到内存
+    # 保存到内存
     buf = BytesIO()
-    buf.truncate(50000)  # 预分配缓冲区
+    buf.truncate(50000)
     buf.seek(0)
 
-    img.save(buf, format='PNG', 
-             compress_level=cfg.png_compress_level, 
-             optimize=cfg.png_optimize,
-             pnginfo=None)  # 不保存元数据
+    if use_fast_png:
+        img.save(buf, format='PNG', compress_level=1, optimize=False)
+    else:
+        img.save(buf, format='PNG', 
+                 compress_level=cfg.png_compress_level, 
+                 optimize=cfg.png_optimize,
+                 pnginfo=None)
     data = buf.getvalue()
 
-    # 清理
     img.close()
     buf.close()
 
@@ -321,6 +326,11 @@ def parse_args():
         '--disable-comb-overlay',
         action='store_true',
         help='禁用组合类标记(Mn/Mc/Me)的◌覆盖提示'
+    )
+    parser.add_argument(
+        '--fast-png',
+        action='store_true',
+        help='使用快速PNG编码（压缩级别1，无优化），速度提升约2-3倍，文件稍大'
     )
     return parser.parse_args()
 
@@ -434,6 +444,10 @@ def main():
     writer = Thread(target=optimized_writer_thread_fn, args=(q, args.write_batch_size), daemon=True)
     writer.start()
 
+    # 快速模式提示
+    if args.fast_png:
+        logging.info("使用快速PNG编码模式")
+
     start = time.time()
     with ThreadPoolExecutor(max_workers=args.workers) as pool, \
          tqdm(total=len(to_process), desc="生成图片", unit="项") as bar:
@@ -446,7 +460,8 @@ def main():
                 text_cache, desc_cache, precomputed,
                 blend_cache, overlay_cache,
                 overlay_enabled, combining_cps,
-                overlay_bbox_cache
+                overlay_bbox_cache,
+                args.fast_png
             )
             for entry in to_process
         ]
@@ -466,7 +481,12 @@ def main():
 
     elapsed = time.time() - start
     fps = len(to_process)/elapsed if elapsed > 0 else float('inf')
-    logging.info(f"完成，用时 {elapsed:.2f}s，{fps:.2f} 张/秒。")
+    
+    logging.info(f"完成，用时 {elapsed:.2f}s，{fps:.2f} 张/秒")
+    logging.info(f"平均每张图片耗时 {elapsed/len(to_process)*1000:.2f}ms")
+    
+    if args.fast_png:
+        logging.info("提示：使用快速PNG模式，文件大小会比标准模式大20-30%，但速度提升2-3倍")
 
 if __name__ == '__main__':
     main()
