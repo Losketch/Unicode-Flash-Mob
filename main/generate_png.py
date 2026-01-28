@@ -107,30 +107,34 @@ def preload_middle_fonts(entries: list[UnicodeEntry], cfg: Config) -> tuple[dict
     return font_cache, metrics_cache
 
 def write_batch(batch: list):
-    """批量写入文件"""
+    """批量写入文件，优化磁盘I/O"""
     for data, path in batch:
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, 'wb') as f:
                 f.write(data)
         except Exception as e:
             logging.error(f"写入文件失败 {path}: {e}")
 
-def optimized_writer_thread_fn(queue: Queue):
-    """优化的写入线程，支持批量写入"""
+def optimized_writer_thread_fn(queue: Queue, batch_size: int = 50):
+    """优化的写入线程，支持批量写入，增大batch_size减少磁盘I/O"""
     batch = []
-    batch_size = 10
+    total_written = 0
 
     while True:
         item = queue.get()
         if item is None:
             if batch:
                 write_batch(batch)
+                total_written += len(batch)
+                logging.info(f"写入线程完成，共写入 {total_written} 个文件")
             queue.task_done()
             break
 
         batch.append(item)
         if len(batch) >= batch_size:
             write_batch(batch)
+            total_written += len(batch)
             batch.clear()
 
         queue.task_done()
@@ -296,6 +300,12 @@ def parse_args():
         help='并发线程数，默认为 4'
     )
     parser.add_argument(
+        '--write-batch-size',
+        type=int,
+        default=50,
+        help='批量写入大小，默认为 50（增大可减少磁盘I/O）'
+    )
+    parser.add_argument(
         '--png-quality',
         choices=['fast', 'balanced', 'best'],
         default='balanced',
@@ -421,7 +431,7 @@ def main():
 
     # 优化的写入队列
     q: Queue = Queue(maxsize=200)
-    writer = Thread(target=optimized_writer_thread_fn, args=(q,), daemon=True)
+    writer = Thread(target=optimized_writer_thread_fn, args=(q, args.write_batch_size), daemon=True)
     writer.start()
 
     start = time.time()

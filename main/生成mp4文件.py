@@ -64,14 +64,17 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
             '-i', temp_file,
             '-c:v', 'libx264',
             '-crf', '18',
+            '-preset', 'fast',
             '-pix_fmt', 'yuv420p',
-            '-fflags', '+genpts',
+            '-fflags', '+genpts+discardcorrupt',
             '-vsync', 'vfr',
             '-avoid_negative_ts', 'make_zero',
+            '-threads', str(os.cpu_count() or 4),
             output_file
         ]
 
         logging.info(f"开始转换视频，共 {len(file_list)} 张图片...")
+        logging.info(f"使用 {os.cpu_count() or 4} 个线程进行编码")
         process = subprocess.Popen(ffmpeg_command)
         process.wait()
         if process.returncode == 0:
@@ -146,6 +149,50 @@ def get_frame_rate():
                 return frame_rate
         except ValueError:
             logging.warning("无效的输入，请输入一个数字。")
+
+def cleanup_png_files(input_folder: str, confirm: bool = True) -> int:
+    """
+    清理PNG中间文件，释放磁盘空间
+    
+    Args:
+        input_folder: PNG文件所在目录
+        confirm: 是否需要用户确认
+    
+    Returns:
+        删除的文件数量
+    """
+    if not os.path.exists(input_folder):
+        return 0
+    
+    png_files = [f for f in os.listdir(input_folder) if f.lower().endswith('.png')]
+    
+    if not png_files:
+        logging.info("没有找到PNG文件需要清理")
+        return 0
+    
+    total_size = sum(os.path.getsize(os.path.join(input_folder, f)) for f in png_files)
+    size_mb = total_size / (1024 * 1024)
+    
+    if confirm:
+        logging.info(f"发现 {len(png_files)} 个PNG文件，占用 {size_mb:.2f} MB")
+        choice = input("是否清理这些中间PNG文件？(y/n): ").strip().lower()
+        if choice != 'y':
+            logging.info("跳过清理")
+            return 0
+    
+    deleted_count = 0
+    try:
+        for filename in png_files:
+            file_path = os.path.join(input_folder, filename)
+            os.remove(file_path)
+            deleted_count += 1
+        
+        logging.info(f"已清理 {deleted_count} 个PNG文件，释放 {size_mb:.2f} MB 磁盘空间")
+        
+    except Exception as e:
+        logging.error(f"清理PNG文件时出错: {e}")
+    
+    return deleted_count
 
 def main():
     setup_logging()
@@ -223,6 +270,12 @@ def main():
         logging.info("程序完成，未添加音乐")
 
     logging.info(f"\n视频已保存为: {output_file}")
+
+    cleanup_choice = input("\n是否清理中间PNG文件以释放磁盘空间？(y/n): ").strip().lower()
+    if cleanup_choice == 'y':
+        cleanup_png_files(input_folder, confirm=False)
+    else:
+        logging.info("保留中间PNG文件")
 
 if __name__ == "__main__":
     try:
