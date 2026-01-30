@@ -15,7 +15,7 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(__file__))
 
 from control_map import get_char, CTRLS
-from Module import Config, UnicodeEntry, ColorManager, load_unicode_entries, setup_logging, writer_thread_fn
+from Module import Config, UnicodeEntry, ColorManager, load_unicode_entries, setup_logging, writer_thread_fn, get_bitmap_font_sizes
 
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
@@ -87,24 +87,41 @@ def preprocess_descriptions(entries: list[UnicodeEntry]) -> dict[str, str]:
             processed[entry.code_str] = entry.code_str
     return processed
 
-def preload_middle_fonts(entries: list[UnicodeEntry], cfg: Config) -> tuple[dict, dict]:
+def preload_middle_fonts(entries: list[UnicodeEntry], cfg: Config) -> tuple[dict, dict, dict]:
     """预加载字体和度量信息"""
     paths = {entry.font_path for entry in entries}
     paths.update(cfg.font_files)
 
     font_cache: dict[Path, ImageFont.FreeTypeFont | None] = {}
     metrics_cache: dict[Path, tuple[int, int]] = {}
+    font_scale_cache: dict[Path, float] = {}
 
     for p in paths:
         try:
             font = ImageFont.truetype(str(p), cfg.middle_font_size)
             font_cache[p] = font
             metrics_cache[p] = font.getmetrics()
+            font_scale_cache[p] = 1.0
         except Exception as e:
-            logging.warning(f"预加载字体失败 `{p}`: {e}")
-            font_cache[p] = None
+            if 'invalid pixel size' in str(e):
+                try:
+                    best_size, actual_size = get_bitmap_font_sizes(p, cfg.middle_font_size)
+                    font = ImageFont.truetype(str(p), best_size)
+                    scale_factor = cfg.middle_font_size / actual_size if actual_size > 0 else 1.0
+                    font_cache[p] = font
+                    metrics_cache[p] = font.getmetrics()
+                    font_scale_cache[p] = scale_factor
+                    logging.info(f"位图字体 `{p}` PPEM={best_size}, 实际位图={actual_size}, 缩放因子={scale_factor:.2f}")
+                except Exception as e2:
+                    logging.warning(f"预加载字体失败 `{p}`: {e2}")
+                    font_cache[p] = None
+                    font_scale_cache[p] = 1.0
+            else:
+                logging.warning(f"预加载字体失败 `{p}`: {e}")
+                font_cache[p] = None
+                font_scale_cache[p] = 1.0
 
-    return font_cache, metrics_cache
+    return font_cache, metrics_cache, font_scale_cache
 
 def write_batch(batch: list):
     """批量写入文件，优化磁盘I/O"""
@@ -145,8 +162,10 @@ def generate_image_bytes(
     color_mgr: ColorManager | None,
     bottom_font: ImageFont.FreeTypeFont,
     ctrl_font: ImageFont.FreeTypeFont,
+    ctrl_font_scale: float,
     middle_font_cache: dict[Path, ImageFont.FreeTypeFont | None],
     metrics_cache: dict[Path, tuple[int, int]],
+    font_scale_cache: dict[Path, float],
     text_cache: dict[str, tuple[int, int]],
     desc_cache: dict[str, str],
     precomputed: PrecomputedValues,
@@ -244,7 +263,7 @@ def generate_image_bytes(
         if overlay_cache_key in overlay_bbox_cache:
             ow, oh = overlay_bbox_cache[overlay_cache_key]
         else:
-            obbox = draw.textbbox((0,0), overlay_char, font=ctrl_font)
+            obbox = draw.textbbox((0,0), overlay_char, font=ctrl_font, embedded_color=True)
             ow = obbox[2] - obbox[0]
             oh = obbox[3] - obbox[1]
             overlay_bbox_cache[overlay_cache_key] = (ow, oh)
@@ -254,13 +273,50 @@ def generate_image_bytes(
         else:
             overlay_color = fast_blend_colors(precomputed.fg_color, bg_key, precomputed.overlay_alpha)
             overlay_cache[bg_key] = overlay_color
-            
-        ox = (precomputed.W - ow)//2 + precomputed.text_x_offset
-        oy = baseline_y - ascent
-        draw.text((ox, oy), overlay_char, font=ctrl_font, fill=overlay_color)
+
+        if ctrl_font_scale != 1.0:
+            temp_size = int(max(ow, oh) * 1.5)
+            temp_img = Image.new('RGBA', (temp_size, temp_size), (0, 0, 0, 0))
+            temp_draw = ImageDraw.Draw(temp_img)
+            temp_x = (temp_size - ow) // 2
+            temp_y = (temp_size - oh) // 2
+            temp_draw.text((temp_x, temp_y), overlay_char, font=ctrl_font, fill=overlay_color, embedded_color=True)
+
+            new_ow = int(ow * ctrl_font_scale)
+            new_oh = int(oh * ctrl_font_scale)
+            scaled_img = temp_img.resize((new_ow, new_oh), Image.Resampling.LANCZOS)
+
+            ox = (precomputed.W - new_ow)//2 + precomputed.text_x_offset
+            oy = baseline_y - ascent + (oh - new_oh)//2
+            img.paste(scaled_img, (ox, oy), scaled_img)
+            scaled_img.close()
+            temp_img.close()
+        else:
+            ox = (precomputed.W - ow)//2 + precomputed.text_x_offset
+            oy = baseline_y - ascent
+            draw.text((ox, oy), overlay_char, font=ctrl_font, fill=overlay_color, embedded_color=True)
 
     # 主字符
-    draw.text((x, y), char, font=middle_font, fill=blended)
+    scale_factor = font_scale_cache.get(font_path_key, 1.0)
+    if scale_factor != 1.0:
+        temp_size = int(max(w, h) * 1.5)
+        temp_img = Image.new('RGBA', (temp_size, temp_size), (0, 0, 0, 0))
+        temp_draw = ImageDraw.Draw(temp_img)
+        temp_x = (temp_size - w) // 2
+        temp_y = (temp_size - h) // 2
+        temp_draw.text((temp_x, temp_y), char, font=middle_font, fill=blended, embedded_color=True)
+        
+        new_w = int(w * scale_factor)
+        new_h = int(h * scale_factor)
+        scaled_img = temp_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        
+        paste_x = (precomputed.W - new_w)//2 + precomputed.text_x_offset
+        paste_y = y + (h - new_h)//2
+        img.paste(scaled_img, (paste_x, paste_y), scaled_img)
+        scaled_img.close()
+        temp_img.close()
+    else:
+        draw.text((x, y), char, font=middle_font, fill=blended, embedded_color=True)
 
     # 底部文字 - 使用预处理的文本
     bottom_text = desc_cache[entry.code_str]
@@ -427,13 +483,26 @@ def main():
 
     # 加载字体
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
+    ctrl_font_scale = 1.0
     try:
         ctrl_font = ImageFont.truetype(str(cfg.ctrl_font_file), cfg.middle_font_size)
-    except OSError:
-        logging.error(f"加载 Ctrl 字体失败: {cfg.ctrl_font_file}")
-        ctrl_font = ImageFont.load_default()
+    except OSError as e:
+        if 'invalid pixel size' in str(e):
+            try:
+                best_size, actual_size = get_bitmap_font_sizes(cfg.ctrl_font_file, cfg.middle_font_size)
+                ctrl_font = ImageFont.truetype(str(cfg.ctrl_font_file), best_size)
+                ctrl_font_scale = cfg.middle_font_size / actual_size if actual_size > 0 else 1.0
+                logging.info(f"Ctrl 字体为位图字体，PPEM={best_size}, 实际位图={actual_size}, 缩放因子={ctrl_font_scale:.2f}")
+            except Exception as e2:
+                logging.error(f"加载 Ctrl 字体失败: {cfg.ctrl_font_file}: {e2}")
+                ctrl_font = ImageFont.load_default()
+                ctrl_font_scale = 1.0
+        else:
+            logging.error(f"加载 Ctrl 字体失败: {cfg.ctrl_font_file}: {e}")
+            ctrl_font = ImageFont.load_default()
+            ctrl_font_scale = 1.0
 
-    middle_font_cache, metrics_cache = preload_middle_fonts(to_process, cfg)
+    middle_font_cache, metrics_cache, font_scale_cache = preload_middle_fonts(to_process, cfg)
 
     # 创建各种缓存
     text_cache: dict[str, tuple[int, int]] = {}
@@ -455,8 +524,8 @@ def main():
             pool.submit(
                 generate_image_bytes,
                 entry, cfg, color_mgr,
-                bottom_font, ctrl_font,
-                middle_font_cache, metrics_cache,
+                bottom_font, ctrl_font, ctrl_font_scale,
+                middle_font_cache, metrics_cache, font_scale_cache,
                 text_cache, desc_cache, precomputed,
                 blend_cache, overlay_cache,
                 overlay_enabled, combining_cps,

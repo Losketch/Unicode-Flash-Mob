@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 import json
+import struct
 import logging
 from queue import Queue
 from pathlib import Path
 from threading import Lock
 from dataclasses import dataclass
 from functools import lru_cache
-import os
+from fontTools.ttLib import TTFont
+
 
 @dataclass
 class Config:
@@ -338,3 +341,80 @@ def blend_colors(fg: tuple[int,int,int], bg: tuple[int,int,int], alpha: float) -
         int(fg[1] * alpha + bg[1] * inv_alpha),
         int(fg[2] * alpha + bg[2] * inv_alpha)
     )
+
+
+def get_bitmap_font_sizes(font_path: Path, target_size: int) -> tuple[int, int]:
+    """读取位图字体(CBDT/sbix)的可用尺寸，返回 (PPEM, 实际位图像素尺寸)"""
+    try:
+        tt = TTFont(str(font_path))
+        
+        if 'CBDT' in tt:
+            ppem = None
+            actual_size = None
+            
+            if 'CBLC' in tt:
+                cblc = tt['CBLC']
+                if hasattr(cblc, 'strikes') and cblc.strikes:
+                    strikes = cblc.strikes
+                    for strike in strikes:
+                        if hasattr(strike, 'bitmapSizeTable'):
+                            bt = strike.bitmapSizeTable
+                            if hasattr(bt, 'ppemX') and bt.ppemX:
+                                ppem = int(bt.ppemX)
+                            break
+            
+            cbdt = tt['CBDT']
+            if hasattr(cbdt, 'strikeData') and cbdt.strikeData:
+                strike_data = cbdt.strikeData[0]
+                for glyph_name, glyph_data in strike_data.items():
+                    if hasattr(glyph_data, 'metrics'):
+                        metrics = glyph_data.metrics
+                        if hasattr(metrics, 'height'):
+                            actual_size = int(metrics.height)
+                        break
+            
+            if ppem and actual_size:
+                tt.close()
+                return (ppem, actual_size)
+            if ppem:
+                tt.close()
+                return (ppem, ppem)
+            if actual_size:
+                tt.close()
+                return (actual_size, actual_size)
+        
+        if 'sbix' in tt:
+            sbix = tt['sbix']
+            if hasattr(sbix, 'strikes') and sbix.strikes:
+                ppem = min(sbix.strikes.keys())
+                actual_size = None
+                
+                for strike in sbix.strikes.values():
+                    if hasattr(strike, 'glyphs'):
+                        for glyph_name, glyph_data in strike.glyphs.items():
+                            if hasattr(glyph_data, 'imageData') and glyph_data.imageData:
+                                try:
+                                    data = glyph_data.imageData
+                                    if len(data) >= 24:
+                                        actual_size = struct.unpack('>I', data[16:20])[0]
+                                except Exception:
+                                    pass
+                                break
+                        break
+                
+                if actual_size:
+                    tt.close()
+                    return (ppem, actual_size)
+                tt.close()
+                return (ppem, ppem)
+        
+        if 'head' in tt:
+            upem = tt['head'].unitsPerEm
+            tt.close()
+            return (upem, upem)
+        
+        tt.close()
+    except Exception:
+        pass
+    
+    return (target_size, target_size)
