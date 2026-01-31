@@ -34,23 +34,7 @@ Unicode-Flash-Mob 是一款将字体中的 Unicode 字符自动排布并渲染�
 git clone https://github.com/Losketch/Unicode-Flash-Mob.git
 cd Unicode-Flash-Mob
 cargo build --releases
-pip install Pillow tqdm
-```
-
-#### 生成 PNG
-
-- `生成png（背景变化）.py`  
-- `生成png（背景不变）.py`
-
-```bash
-python "生成png（背景变化）.py"   # 或
-python "生成png（背景不变）.py"
-```
-
-#### 合成视频
-
-```bash
-python 生成mp4文件.py
+pip install -r requirements.txt
 ```
 
 ---
@@ -86,23 +70,37 @@ python 生成mp4文件.py
 
 此错误多因单张图过大或字符量过多导致内存占用过高。可尝试：
 
-1. 缩小输出分辨率（如由 1920×1080 调至 1280×720）  
-2. 调整字体大小 `middle_font_size`  
-3. 分批处理 Unicode.txt（拆分成小文件）  
+1. 缩小输出分辨率（如由 1920×1080 调至 1280×720）
+2. 调整字体大小 `middle_font_size`
+3. 分批处理 Unicode.txt（拆分成小文件）
 4. 如果实在无法避免，升级至更大内存的机器
 
-### 扩展 & 二次创作
+---
 
-1. **自定义背景 & 布局**  
-   - 背景图或纯色背景、字符排布位置等都可自定义。
+## 彩色字体支持
 
-2. **视频特效 & 动画**  
-   - 合成完视频后，可用 FFmpeg、After Effects 等工具添加闪烁、渐变、旋转等特效。
+本项目支持渲染彩色字体（Color Fonts），包括以下格式：
+
+### 支持的彩色字体格式
+
+| 格式 | 说明 |
+|------|------|
+| **COLR** | Microsoft COLR/CPAL 表格，使用 Skia 后端渲染 |
+| **SBIX** | Apple sbix 表格（位图彩色字体） |
+| **CBDT/CBLC** | Microsoft CBDT/CBLC 表格（位图彩色字体） |
+| **SVG** | OpenType SVG 表格，使用 skia-python 直接渲染 SVG |
+
+### 技术实现
+
+- **COLR 渲染**：使用 `blackrenderer` 库的 Skia 后端，通过 `SkiaPixelSurface` 渲染矢量彩色字形
+- **SVG 渲染**：使用 `skia-python` 的 `SVGDOM` 直接解析和渲染 SVG 文档
+- **位图渲染**：直接提取嵌入式位图数据并转换为 PNG
+
+### 依赖要求
+
+> **注意**：确保使用 `blackrenderer[skia]` 而非 `blackrenderer[cairo]`。
 
 ## 授权许可
 
 本项目基于 Apache License 2.0 发布，详见 [LICENSE](LICENSE)。  
 您可自由使用、修改、分发（包括商用），但须保留原始版权声明和许可文本，并在修改后文件中注明“由此文件衍生”。
-
-## 联系方式
-- QQ 邮箱: 𝚕𝚘𝚜𝚔𝚎𝚝𝚌𝚑@𝚚𝚚.𝚌𝚘𝚖
