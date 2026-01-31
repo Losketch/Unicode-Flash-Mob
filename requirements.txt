@@ -1,5 +1,5 @@
 pillow==11.2.1
 tqdm==4.67.1
-colorama==0.4.6
 fonttools==4.61.1
 blackrenderer[skia]==0.6.0
+uharfbuzz==0.53.3
