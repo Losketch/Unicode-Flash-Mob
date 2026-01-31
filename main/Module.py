@@ -15,7 +15,10 @@ from blackrenderer.font import BlackRendererFont
 from blackrenderer.backends import getSurfaceClass
 from PIL import Image
 import uharfbuzz as hb_module
+import math
 import array
+
+HAS_SKIA = getSurfaceClass("skia") is not None
 
 
 @dataclass
@@ -430,6 +433,117 @@ def has_colr_table(font_path: Path) -> bool:
     return has_colr
 
 
+def has_svg_table(font_path: Path) -> bool:
+    """检查字体是否有 SVG 表"""
+    tt = TTFont(str(font_path))
+    has_svg = 'SVG ' in tt
+    tt.close()
+    return has_svg
+
+
+def render_svg_glyph(
+    font_path: Path,
+    char: str,
+    font_size: int,
+    fg_color: tuple[int, int, int]
+) -> tuple[Image.Image, int] | None:
+    """使用 skia-python 渲染 SVG 彩色字形，返回 (PIL Image, baseline_offset)
+    baseline_offset: 从图像底部到字形基线的像素数
+    """
+    try:
+        import skia
+    except ImportError:
+        return None
+    
+    ttFont = TTFont(str(font_path))
+    
+    if 'SVG ' not in ttFont:
+        ttFont.close()
+        return None
+    
+    svg_table = ttFont['SVG ']
+    if not svg_table.docList:
+        ttFont.close()
+        return None
+    
+    char_code = ord(char)
+    
+    cmap = ttFont.getBestCmap()
+    if cmap is None:
+        ttFont.close()
+        return None
+    
+    glyph_name = cmap.get(char_code)
+    if glyph_name is None:
+        ttFont.close()
+        return None
+    
+    glyph_order = ttFont.getGlyphOrder()
+    try:
+        glyph_id = glyph_order.index(glyph_name)
+    except ValueError:
+        ttFont.close()
+        return None
+    
+    svg_doc = None
+    for doc in svg_table.docList:
+        if doc.startGlyphID <= glyph_id <= doc.endGlyphID:
+            svg_doc = doc
+            break
+    
+    if svg_doc is None:
+        ttFont.close()
+        return None
+    
+    svg_doc_str = svg_doc.data
+    
+    unitsPerEm = ttFont['head'].unitsPerEm
+    scale = font_size / unitsPerEm
+    
+    canvas_width = font_size + 4
+    canvas_height = font_size + 4
+    
+    ascent = ttFont['hhea'].ascent
+    baseline_offset = int(ascent * scale) + 2
+    
+    svg_with_xml = '<?xml version="1.0" encoding="UTF-8"?>' + svg_doc_str
+    svg_bytes = svg_with_xml.encode('utf-8')
+    
+    stream = skia.MemoryStream.Make(svg_bytes)
+    dom = skia.SVGDOM.MakeFromStream(stream)
+    if dom is None:
+        ttFont.close()
+        return None
+    
+    surface = skia.Surface.MakeRaster(skia.ImageInfo.MakeN32Premul(canvas_width, canvas_height))
+    canvas = surface.getCanvas()
+    
+    canvas.clear(0)
+    
+    transform = skia.Matrix()
+    transform.setScale(scale, scale)
+    transform.postTranslate(0, canvas_height)
+    canvas.setMatrix(transform)
+    
+    dom.setContainerSize(skia.Size.Make(canvas_width / scale, canvas_height / scale))
+    dom.render(canvas)
+    
+    image = surface.makeImageSnapshot()
+    if image is None:
+        ttFont.close()
+        return None
+    
+    png_data = image.encodeToData(skia.EncodedImageFormat.kPNG, 100)
+    
+    from io import BytesIO
+    img = Image.open(BytesIO(png_data))
+    img = img.convert("RGBA")
+    
+    ttFont.close()
+    
+    return (img, baseline_offset)
+
+
 def render_colr_glyph(
     font_path: Path,
     char: str,
@@ -439,71 +553,79 @@ def render_colr_glyph(
     """使用 BlackRenderer 渲染 COLR 彩色字形，返回 (PIL Image, baseline_offset)
     baseline_offset: 从图像底部到字形基线的像素数
     """
-    brFont = BlackRendererFont(str(font_path))
+    if HAS_SKIA and has_colr_table(font_path):
+        surfaceClass = getSurfaceClass("skia")
+        if surfaceClass is None:
+            return None
+        
+        brFont = BlackRendererFont(str(font_path))
+        
+        if not brFont.colrV0Glyphs and not brFont.colrV1Glyphs:
+            return None
+        
+        glyph_names = brFont.glyphNames
+        
+        import uharfbuzz as hb_module
+        
+        buf = hb_module.Buffer()
+        buf.add_str(char)
+        buf.guess_segment_properties()
+        hb_module.shape(brFont.hbFont, buf)
+        
+        if not buf.glyph_infos:
+            return None
+        
+        glyph_info = buf.glyph_infos[0]
+        glyph_name = glyph_names[glyph_info.codepoint]
+        
+        bounds = brFont.getGlyphBounds(glyph_name)
+        if bounds is None:
+            return None
+        
+        x_min, y_min, x_max, y_max = bounds
+        glyph_width = x_max - x_min
+        glyph_height = y_max - y_min
+        
+        if glyph_width == 0 or glyph_height == 0:
+            return None
+        
+        scale = font_size / brFont.unitsPerEm
+        
+        canvas_width = int(glyph_width * scale) + 4
+        canvas_height = int(glyph_height * scale) + 4
+        baseline_offset = int(y_max * scale) + 2
+        
+        bounds_for_canvas = (0, -canvas_height, canvas_width, 0)
+        
+        surface = surfaceClass()
+        
+        try:
+            with surface.canvas(bounds_for_canvas) as canvas:
+                canvas.scale(scale)
+                canvas.translate(-x_min, -y_max)
+                palette = brFont.getPalette(0)
+                brFont.drawGlyph(glyph_name, canvas, palette=palette)
+        except Exception as e:
+            return None
+        
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            temp_path = f.name
+        
+        surface.saveImage(temp_path)
+        
+        from io import BytesIO
+        with open(temp_path, 'rb') as f:
+            png_data = f.read()
+        os.unlink(temp_path)
+        
+        img = Image.open(BytesIO(png_data))
+        img = img.convert("RGBA")
+        
+        return (img, baseline_offset)
     
-    if not brFont.colrV0Glyphs and not brFont.colrV1Glyphs:
-        return None
+    if has_svg_table(font_path):
+        return render_svg_glyph(font_path, char, font_size, fg_color)
     
-    glyph_names = brFont.glyphNames
-    
-    buf = hb_module.Buffer()
-    buf.add_str(char)
-    buf.guess_segment_properties()
-    hb_module.shape(brFont.hbFont, buf)
-    
-    if not buf.glyph_infos:
-        return None
-    
-    glyph_info = buf.glyph_infos[0]
-    glyph_name = glyph_names[glyph_info.codepoint]
-    
-    bounds = brFont.getGlyphBounds(glyph_name)
-    if bounds is None:
-        return None
-    
-    x_min, y_min, x_max, y_max = bounds
-    glyph_width = x_max - x_min
-    glyph_height = y_max - y_min
-    
-    if glyph_width == 0 or glyph_height == 0:
-        return None
-    
-    scale = font_size / brFont.unitsPerEm
-    
-    surfaceClass = getSurfaceClass("cairo")
-    if surfaceClass is None:
-        return None
-    
-    surface = surfaceClass()
-    
-    canvas_width = int(glyph_width * scale) + 4
-    canvas_height = int(glyph_height * scale) + 4
-    baseline_offset = int(y_max * scale) + 2
-    
-    bounds_for_canvas = (0, -canvas_height, canvas_width, 0)
-    
-    with surface.canvas(bounds_for_canvas) as canvas:
-        canvas.scale(scale)
-        canvas.translate(-x_min, -y_max)
-        palette = brFont.getPalette(0)
-        brFont.drawGlyph(glyph_name, canvas, palette=palette)
-    
-    cairo_surface, (width, height) = surface._surfaces[-1]
-    cairo_surface.flush()
-    
-    cairo_data = cairo_surface.get_data()
-    n_pixels = width * height
-    rgba_data = array.array('B', [0] * (n_pixels * 4))
-    for i in range(n_pixels):
-        offset = i * 4
-        b = cairo_data[offset]
-        g = cairo_data[offset + 1]
-        r = cairo_data[offset + 2]
-        a = cairo_data[offset + 3]
-        rgba_data[i * 4] = r
-        rgba_data[i * 4 + 1] = g
-        rgba_data[i * 4 + 2] = b
-        rgba_data[i * 4 + 3] = a
-    
-    img = Image.frombytes("RGBA", (width, height), rgba_data.tobytes())
-    return (img, baseline_offset)
+    return None

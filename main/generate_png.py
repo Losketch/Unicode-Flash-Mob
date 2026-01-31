@@ -15,7 +15,7 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(__file__))
 
 from control_map import get_char, CTRLS
-from Module import Config, UnicodeEntry, ColorManager, load_unicode_entries, setup_logging, writer_thread_fn, get_bitmap_font_sizes, has_colr_table, render_colr_glyph
+from Module import Config, UnicodeEntry, ColorManager, load_unicode_entries, setup_logging, writer_thread_fn, get_bitmap_font_sizes, has_colr_table, has_svg_table, render_colr_glyph
 
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
@@ -232,7 +232,7 @@ def generate_image_bytes(
     baseline_y = int(precomputed.center_y + (ascent - descent)/2) + precomputed.baseline_offset
 
     # 缓存文本尺寸计算
-    if hasattr(middle_font, 'path'):
+    if middle_font is not None and hasattr(middle_font, 'path'):
         cache_key = f"{char}_{middle_font.path}_{middle_font.size}"
     else:
         cache_key = f"{char}_{font_path_key}_{cfg.middle_font_size}"
@@ -298,7 +298,7 @@ def generate_image_bytes(
             draw.text((ox, oy), overlay_char, font=ctrl_font, fill=overlay_color, embedded_color=True)
 
     # 主字符
-    if not is_control and has_colr_table(entry.font_path):
+    if not is_control and (has_colr_table(entry.font_path) or has_svg_table(entry.font_path)):
         colr_cache_key = f"{entry.font_path}_{char}_{cfg.middle_font_size}"
         colr_result = colr_glyph_cache.get(colr_cache_key)
         if colr_result is None:
