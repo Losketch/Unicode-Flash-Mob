@@ -11,6 +11,11 @@ from threading import Lock
 from dataclasses import dataclass
 from functools import lru_cache
 from fontTools.ttLib import TTFont
+from blackrenderer.font import BlackRendererFont
+from blackrenderer.backends import getSurfaceClass
+from PIL import Image
+import uharfbuzz as hb_module
+import array
 
 
 @dataclass
@@ -345,76 +350,160 @@ def blend_colors(fg: tuple[int,int,int], bg: tuple[int,int,int], alpha: float) -
 
 def get_bitmap_font_sizes(font_path: Path, target_size: int) -> tuple[int, int]:
     """读取位图字体(CBDT/sbix)的可用尺寸，返回 (PPEM, 实际位图像素尺寸)"""
-    try:
-        tt = TTFont(str(font_path))
-        
-        if 'CBDT' in tt:
-            ppem = None
-            actual_size = None
-            
-            if 'CBLC' in tt:
-                cblc = tt['CBLC']
-                if hasattr(cblc, 'strikes') and cblc.strikes:
-                    strikes = cblc.strikes
-                    for strike in strikes:
-                        if hasattr(strike, 'bitmapSizeTable'):
-                            bt = strike.bitmapSizeTable
-                            if hasattr(bt, 'ppemX') and bt.ppemX:
-                                ppem = int(bt.ppemX)
-                            break
-            
-            cbdt = tt['CBDT']
-            if hasattr(cbdt, 'strikeData') and cbdt.strikeData:
-                strike_data = cbdt.strikeData[0]
-                for glyph_name, glyph_data in strike_data.items():
-                    if hasattr(glyph_data, 'metrics'):
-                        metrics = glyph_data.metrics
-                        if hasattr(metrics, 'height'):
-                            actual_size = int(metrics.height)
+    tt = TTFont(str(font_path))
+
+    if 'CBDT' in tt:
+        ppem = None
+        actual_size = None
+
+        if 'CBLC' in tt:
+            cblc = tt['CBLC']
+            if hasattr(cblc, 'strikes') and cblc.strikes:
+                strikes = cblc.strikes
+                for strike in strikes:
+                    if hasattr(strike, 'bitmapSizeTable'):
+                        bt = strike.bitmapSizeTable
+                        if hasattr(bt, 'ppemX') and bt.ppemX:
+                            ppem = int(bt.ppemX)
                         break
-            
-            if ppem and actual_size:
-                tt.close()
-                return (ppem, actual_size)
-            if ppem:
-                tt.close()
-                return (ppem, ppem)
+
+        cbdt = tt['CBDT']
+        if hasattr(cbdt, 'strikeData') and cbdt.strikeData:
+            strike_data = cbdt.strikeData[0]
+            for glyph_name, glyph_data in strike_data.items():
+                if hasattr(glyph_data, 'metrics'):
+                    metrics = glyph_data.metrics
+                    if hasattr(metrics, 'height'):
+                        actual_size = int(metrics.height)
+                    break
+
+        if ppem and actual_size:
+            tt.close()
+            return (ppem, actual_size)
+        if ppem:
+            tt.close()
+            return (ppem, ppem)
+        if actual_size:
+            tt.close()
+            return (actual_size, actual_size)
+
+    if 'sbix' in tt:
+        sbix = tt['sbix']
+        if hasattr(sbix, 'strikes') and sbix.strikes:
+            ppem = min(sbix.strikes.keys())
+            actual_size = None
+
+            for strike in sbix.strikes.values():
+                if hasattr(strike, 'glyphs'):
+                    for glyph_name, glyph_data in strike.glyphs.items():
+                        if hasattr(glyph_data, 'imageData') and glyph_data.imageData:
+                            try:
+                                data = glyph_data.imageData
+                                if len(data) >= 24:
+                                    actual_size = struct.unpack('>I', data[16:20])[0]
+                            except Exception:
+                                pass
+                            break
+                    break
+
             if actual_size:
                 tt.close()
-                return (actual_size, actual_size)
-        
-        if 'sbix' in tt:
-            sbix = tt['sbix']
-            if hasattr(sbix, 'strikes') and sbix.strikes:
-                ppem = min(sbix.strikes.keys())
-                actual_size = None
-                
-                for strike in sbix.strikes.values():
-                    if hasattr(strike, 'glyphs'):
-                        for glyph_name, glyph_data in strike.glyphs.items():
-                            if hasattr(glyph_data, 'imageData') and glyph_data.imageData:
-                                try:
-                                    data = glyph_data.imageData
-                                    if len(data) >= 24:
-                                        actual_size = struct.unpack('>I', data[16:20])[0]
-                                except Exception:
-                                    pass
-                                break
-                        break
-                
-                if actual_size:
-                    tt.close()
-                    return (ppem, actual_size)
-                tt.close()
-                return (ppem, ppem)
-        
-        if 'head' in tt:
-            upem = tt['head'].unitsPerEm
+                return (ppem, actual_size)
             tt.close()
-            return (upem, upem)
-        
+            return (ppem, ppem)
+
+    if 'head' in tt:
+        upem = tt['head'].unitsPerEm
         tt.close()
-    except Exception:
-        pass
-    
+        return (upem, upem)
+        
+    tt.close()
+
     return (target_size, target_size)
+
+
+def has_colr_table(font_path: Path) -> bool:
+    """检查字体是否有 COLR 表（支持 COLRv0 和 COLRv1）"""
+    tt = TTFont(str(font_path))
+    has_colr = 'COLR' in tt
+    tt.close()
+    return has_colr
+
+
+def render_colr_glyph(
+    font_path: Path,
+    char: str,
+    font_size: int,
+    fg_color: tuple[int, int, int]
+) -> tuple[Image.Image, int] | None:
+    """使用 BlackRenderer 渲染 COLR 彩色字形，返回 (PIL Image, baseline_offset)
+    baseline_offset: 从图像底部到字形基线的像素数
+    """
+    brFont = BlackRendererFont(str(font_path))
+    
+    if not brFont.colrV0Glyphs and not brFont.colrV1Glyphs:
+        return None
+    
+    glyph_names = brFont.glyphNames
+    
+    buf = hb_module.Buffer()
+    buf.add_str(char)
+    buf.guess_segment_properties()
+    hb_module.shape(brFont.hbFont, buf)
+    
+    if not buf.glyph_infos:
+        return None
+    
+    glyph_info = buf.glyph_infos[0]
+    glyph_name = glyph_names[glyph_info.codepoint]
+    
+    bounds = brFont.getGlyphBounds(glyph_name)
+    if bounds is None:
+        return None
+    
+    x_min, y_min, x_max, y_max = bounds
+    glyph_width = x_max - x_min
+    glyph_height = y_max - y_min
+    
+    if glyph_width == 0 or glyph_height == 0:
+        return None
+    
+    scale = font_size / brFont.unitsPerEm
+    
+    surfaceClass = getSurfaceClass("cairo")
+    if surfaceClass is None:
+        return None
+    
+    surface = surfaceClass()
+    
+    canvas_width = int(glyph_width * scale) + 4
+    canvas_height = int(glyph_height * scale) + 4
+    baseline_offset = int(y_max * scale) + 2
+    
+    bounds_for_canvas = (0, -canvas_height, canvas_width, 0)
+    
+    with surface.canvas(bounds_for_canvas) as canvas:
+        canvas.scale(scale)
+        canvas.translate(-x_min, -y_max)
+        palette = brFont.getPalette(0)
+        brFont.drawGlyph(glyph_name, canvas, palette=palette)
+    
+    cairo_surface, (width, height) = surface._surfaces[-1]
+    cairo_surface.flush()
+    
+    cairo_data = cairo_surface.get_data()
+    n_pixels = width * height
+    rgba_data = array.array('B', [0] * (n_pixels * 4))
+    for i in range(n_pixels):
+        offset = i * 4
+        b = cairo_data[offset]
+        g = cairo_data[offset + 1]
+        r = cairo_data[offset + 2]
+        a = cairo_data[offset + 3]
+        rgba_data[i * 4] = r
+        rgba_data[i * 4 + 1] = g
+        rgba_data[i * 4 + 2] = b
+        rgba_data[i * 4 + 3] = a
+    
+    img = Image.frombytes("RGBA", (width, height), rgba_data.tobytes())
+    return (img, baseline_offset)

@@ -15,7 +15,7 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(__file__))
 
 from control_map import get_char, CTRLS
-from Module import Config, UnicodeEntry, ColorManager, load_unicode_entries, setup_logging, writer_thread_fn, get_bitmap_font_sizes
+from Module import Config, UnicodeEntry, ColorManager, load_unicode_entries, setup_logging, writer_thread_fn, get_bitmap_font_sizes, has_colr_table, render_colr_glyph
 
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
@@ -174,7 +174,8 @@ def generate_image_bytes(
     overlay_enabled: bool,
     combining_cps: set[int],
     overlay_bbox_cache: dict[str, tuple[int, int]],
-    use_fast_png: bool = False
+    use_fast_png: bool = False,
+    colr_glyph_cache: dict[str, Image.Image] | None = None
 ) -> tuple[bytes, Path]:
     """图片生成函数，支持快速和标准模式"""
     try:
@@ -297,26 +298,60 @@ def generate_image_bytes(
             draw.text((ox, oy), overlay_char, font=ctrl_font, fill=overlay_color, embedded_color=True)
 
     # 主字符
-    scale_factor = font_scale_cache.get(font_path_key, 1.0)
-    if scale_factor != 1.0:
-        temp_size = int(max(w, h) * 1.5)
-        temp_img = Image.new('RGBA', (temp_size, temp_size), (0, 0, 0, 0))
-        temp_draw = ImageDraw.Draw(temp_img)
-        temp_x = (temp_size - w) // 2
-        temp_y = (temp_size - h) // 2
-        temp_draw.text((temp_x, temp_y), char, font=middle_font, fill=blended, embedded_color=True)
-        
-        new_w = int(w * scale_factor)
-        new_h = int(h * scale_factor)
-        scaled_img = temp_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        
-        paste_x = (precomputed.W - new_w)//2 + precomputed.text_x_offset
-        paste_y = y + (h - new_h)//2
-        img.paste(scaled_img, (paste_x, paste_y), scaled_img)
-        scaled_img.close()
-        temp_img.close()
+    if not is_control and has_colr_table(entry.font_path):
+        colr_cache_key = f"{entry.font_path}_{char}_{cfg.middle_font_size}"
+        colr_result = colr_glyph_cache.get(colr_cache_key)
+        if colr_result is None:
+            colr_result = render_colr_glyph(entry.font_path, char, cfg.middle_font_size, precomputed.fg_color)
+            if colr_result is not None:
+                colr_glyph_cache[colr_cache_key] = colr_result
+        if colr_result is not None:
+            colr_img, baseline_offset = colr_result
+            paste_x = (precomputed.W - colr_img.width) // 2 + precomputed.text_x_offset
+            paste_y = baseline_y - baseline_offset
+            img.paste(colr_img, (paste_x, paste_y), colr_img)
+        else:
+            scale_factor = font_scale_cache.get(font_path_key, 1.0)
+            if scale_factor != 1.0:
+                temp_size = int(max(w, h) * 1.5)
+                temp_img = Image.new('RGBA', (temp_size, temp_size), (0, 0, 0, 0))
+                temp_draw = ImageDraw.Draw(temp_img)
+                temp_x = (temp_size - w) // 2
+                temp_y = (temp_size - h) // 2
+                temp_draw.text((temp_x, temp_y), char, font=middle_font, fill=blended, embedded_color=True)
+                
+                new_w = int(w * scale_factor)
+                new_h = int(h * scale_factor)
+                scaled_img = temp_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                
+                paste_x = (precomputed.W - new_w)//2 + precomputed.text_x_offset
+                paste_y = y + (h - new_h)//2
+                img.paste(scaled_img, (paste_x, paste_y), scaled_img)
+                scaled_img.close()
+                temp_img.close()
+            else:
+                draw.text((x, y), char, font=middle_font, fill=blended, embedded_color=True)
     else:
-        draw.text((x, y), char, font=middle_font, fill=blended, embedded_color=True)
+        scale_factor = font_scale_cache.get(font_path_key, 1.0)
+        if scale_factor != 1.0:
+            temp_size = int(max(w, h) * 1.5)
+            temp_img = Image.new('RGBA', (temp_size, temp_size), (0, 0, 0, 0))
+            temp_draw = ImageDraw.Draw(temp_img)
+            temp_x = (temp_size - w) // 2
+            temp_y = (temp_size - h) // 2
+            temp_draw.text((temp_x, temp_y), char, font=middle_font, fill=blended, embedded_color=True)
+            
+            new_w = int(w * scale_factor)
+            new_h = int(h * scale_factor)
+            scaled_img = temp_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            
+            paste_x = (precomputed.W - new_w)//2 + precomputed.text_x_offset
+            paste_y = y + (h - new_h)//2
+            img.paste(scaled_img, (paste_x, paste_y), scaled_img)
+            scaled_img.close()
+            temp_img.close()
+        else:
+            draw.text((x, y), char, font=middle_font, fill=blended, embedded_color=True)
 
     # 底部文字 - 使用预处理的文本
     bottom_text = desc_cache[entry.code_str]
@@ -507,6 +542,7 @@ def main():
     # 创建各种缓存
     text_cache: dict[str, tuple[int, int]] = {}
     overlay_bbox_cache: dict[str, tuple[int, int]] = {}
+    colr_glyph_cache: dict[str, Image.Image] = {}
 
     # 优化的写入队列
     q: Queue = Queue(maxsize=200)
@@ -530,7 +566,8 @@ def main():
                 blend_cache, overlay_cache,
                 overlay_enabled, combining_cps,
                 overlay_bbox_cache,
-                args.fast_png
+                args.fast_png,
+                colr_glyph_cache
             )
             for entry in to_process
         ]
