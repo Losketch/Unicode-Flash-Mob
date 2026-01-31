@@ -16,21 +16,15 @@ from Module import Config, setup_logging
 def find_ffmpeg():
     ffmpeg_exe = "ffmpeg.exe" if platform.system() == "Windows" else "ffmpeg"
 
-    for path in os.environ.get("PATH", "").split(os.pathsep):
-        ffmpeg_path = os.path.join(path, ffmpeg_exe)
+    search_paths = [
+        (os.path.join(path, ffmpeg_exe) for path in os.environ.get("PATH", "").split(os.pathsep)),
+        [os.path.abspath(os.path.join(".", "ffmpeg", "bin", ffmpeg_exe))],
+        [os.path.join(root, ffmpeg_exe) for root, _, files in os.walk(".") if ffmpeg_exe in files]
+    ]
+
+    for ffmpeg_path in (p for group in search_paths for p in group):
         if os.path.exists(ffmpeg_path):
-            logging.info(f"\n从环境变量中找到 {ffmpeg_exe} 文件\n在：{ffmpeg_path}\n")
-            return ffmpeg_path
-
-    local_ffmpeg_path = os.path.abspath(os.path.join(".", "ffmpeg", "bin", ffmpeg_exe))
-    if os.path.exists(local_ffmpeg_path):
-        logging.info(f"\n在当前目录下找到 {ffmpeg_exe} 文件\n在：{local_ffmpeg_path}\n")
-        return local_ffmpeg_path
-
-    for root, dirs, files in os.walk("."):
-        if ffmpeg_exe in files:
-            ffmpeg_path = os.path.abspath(os.path.join(root, ffmpeg_exe))
-            logging.info(f"\n在当前目录搜索中找到 {ffmpeg_exe} 文件\n在：{ffmpeg_path}\n")
+            logging.info(f"\n找到 {ffmpeg_exe} 文件\n在：{ffmpeg_path}\n")
             return ffmpeg_path
 
     logging.error(f"\n未找到 {ffmpeg_exe} 文件")
@@ -39,41 +33,29 @@ def find_ffmpeg():
 
 def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
     ffmpeg_path = find_ffmpeg()
+    image_duration = 1.0 / frame_rate
 
-    fd, temp_file = tempfile.mkstemp(prefix='ffmpeg_concat_', suffix='.txt', text=True)
-    os.close(fd)
+    with tempfile.NamedTemporaryFile(mode='w', prefix='ffmpeg_concat_', suffix='.txt', delete=False) as temp_file:
+        temp_file_name = temp_file.name
+        for image_file in file_list:
+            temp_file.write(f"file '{os.path.join(image_folder, image_file).replace('\\', '/')}'\n")
+            temp_file.write(f"duration {image_duration}\n")
+        if file_list:
+            temp_file.write(f"file '{os.path.join(image_folder, file_list[-1])}'\n")
+
     try:
-        with open(temp_file, 'w', encoding='utf-8') as file:
-            image_duration = 1.0 / frame_rate
-            for image_file in file_list:
-                file.write(f"file '{os.path.join(image_folder, image_file).replace('\\', '/')}'\n")
-                file.write(f"duration {image_duration}\n")
-
-            if file_list:
-                file.write(f"file '{os.path.join(image_folder, file_list[-1])}'\n")
-
         ffmpeg_command = [
-            ffmpeg_path,
-            '-y',
-            '-r', str(frame_rate),
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', temp_file,
-            '-c:v', 'libx264',
-            '-crf', '18',
-            '-preset', 'fast',
-            '-pix_fmt', 'yuv420p',
-            '-fflags', '+genpts+discardcorrupt',
-            '-vsync', 'vfr',
-            '-avoid_negative_ts', 'make_zero',
-            '-threads', str(os.cpu_count() or 4),
-            output_file
+            ffmpeg_path, '-y', '-r', str(frame_rate), '-f', 'concat', '-safe', '0',
+            '-i', temp_file_name, '-c:v', 'libx264', '-crf', '18', '-preset', 'fast',
+            '-pix_fmt', 'yuv420p', '-fflags', '+genpts+discardcorrupt', '-vsync', 'vfr',
+            '-avoid_negative_ts', 'make_zero', '-threads', str(os.cpu_count() or 4), output_file
         ]
 
         logging.info(f"开始转换视频，共 {len(file_list)} 张图片...")
         logging.info(f"使用 {os.cpu_count() or 4} 个线程进行编码")
         process = subprocess.Popen(ffmpeg_command)
         process.wait()
+
         if process.returncode == 0:
             logging.info("视频转换完成！")
         else:
@@ -82,8 +64,8 @@ def convert_images_to_video(image_folder, output_file, frame_rate, file_list):
     except Exception as e:
         logging.exception(f"转换过程中出现异常：{e}")
     finally:
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
+        if os.path.exists(temp_file_name):
+            os.remove(temp_file_name)
 
     return ffmpeg_path
 
@@ -132,6 +114,13 @@ def get_output_video_name():
         else:
             return output_file_name
 
+def parse_unicode_filename(filename: str) -> tuple[bool, int, str]:
+    clean_name = filename.lstrip('\ufeff')
+    match = re.search(r'_U\+([0-9A-Fa-f]+)\.png', clean_name)
+    if match:
+        return True, int(match.group(1), 16), filename
+    return False, 0, filename
+
 def get_frame_rate():
     while True:
         frame_rate_input = input("请输入视频的帧率（帧/秒，默认30）：").strip()
@@ -148,47 +137,33 @@ def get_frame_rate():
             logging.warning("无效的输入，请输入一个数字。")
 
 def cleanup_png_files(input_folder: str, confirm: bool = True) -> int:
-    """
-    清理PNG中间文件，释放磁盘空间
-    
-    Args:
-        input_folder: PNG文件所在目录
-        confirm: 是否需要用户确认
-    
-    Returns:
-        删除的文件数量
-    """
     if not os.path.exists(input_folder):
         return 0
-    
+
     png_files = [f for f in os.listdir(input_folder) if f.lower().endswith('.png')]
-    
     if not png_files:
         logging.info("没有找到PNG文件需要清理")
         return 0
-    
+
     total_size = sum(os.path.getsize(os.path.join(input_folder, f)) for f in png_files)
     size_mb = total_size / (1024 * 1024)
-    
+    logging.info(f"发现 {len(png_files)} 个PNG文件，占用 {size_mb:.2f} MB")
+
     if confirm:
-        logging.info(f"发现 {len(png_files)} 个PNG文件，占用 {size_mb:.2f} MB")
         choice = input("是否清理这些中间PNG文件？(y/n): ").strip().lower()
         if choice != 'y':
             logging.info("跳过清理")
             return 0
-    
+
     deleted_count = 0
-    try:
-        for filename in png_files:
-            file_path = os.path.join(input_folder, filename)
-            os.remove(file_path)
+    for f in png_files:
+        try:
+            os.remove(os.path.join(input_folder, f))
             deleted_count += 1
-        
-        logging.info(f"已清理 {deleted_count} 个PNG文件，释放 {size_mb:.2f} MB 磁盘空间")
-        
-    except Exception as e:
-        logging.error(f"清理PNG文件时出错: {e}")
-    
+        except OSError:
+            pass
+
+    logging.info(f"已清理 {deleted_count} 个PNG文件，释放 {size_mb:.2f} MB 磁盘空间")
     return deleted_count
 
 def main():
@@ -228,16 +203,11 @@ def main():
 
     valid_files = []
     for file_name in image_files:
-        try:
-            clean_name = file_name.lstrip('\ufeff')
-            match = re.search(r'_U\+([0-9A-Fa-f]+)\.png', clean_name)
-            if match:
-                unicode_value = int(match.group(1), 16)
-                valid_files.append((unicode_value, file_name))
-            else:
-                logging.warning(f"警告：文件名格式不符合要求，跳过：{file_name}")
-        except ValueError as e:
-            logging.error(f"处理文件 {file_name} 时出错：{e}")
+        success, unicode_value, _ = parse_unicode_filename(file_name)
+        if success:
+            valid_files.append((unicode_value, file_name))
+        else:
+            logging.warning(f"警告：文件名格式不符合要求，跳过：{file_name}")
 
     if not valid_files:
         logging.warning("没有找到符合命名规则的PNG文件")
