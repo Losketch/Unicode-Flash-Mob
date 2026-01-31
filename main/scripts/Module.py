@@ -497,35 +497,32 @@ def render_svg_glyph(
     
     svg_doc_str = svg_doc.data
     
+    svg_doc_str = svg_doc_str.replace('<?xml version="1.0" encoding="UTF-8"?>', '', 1)
+    
     unitsPerEm = ttFont['head'].unitsPerEm
+    ascent = ttFont['hhea'].ascent
+    descent = ttFont['hhea'].descent
     scale = font_size / unitsPerEm
     
-    canvas_width = font_size + 4
-    canvas_height = font_size + 4
+    svg_doc_str = svg_doc_str.encode('utf-8')
     
-    ascent = ttFont['hhea'].ascent
-    baseline_offset = int(ascent * scale) + 2
-    
-    svg_with_xml = '<?xml version="1.0" encoding="UTF-8"?>' + svg_doc_str
-    svg_bytes = svg_with_xml.encode('utf-8')
-    
-    stream = skia.MemoryStream.Make(svg_bytes)
+    stream = skia.MemoryStream.Make(svg_doc_str)
     dom = skia.SVGDOM.MakeFromStream(stream)
     if dom is None:
         ttFont.close()
         return None
     
-    surface = skia.Surface.MakeRaster(skia.ImageInfo.MakeN32Premul(canvas_width, canvas_height))
+    surface = skia.Surface.MakeRaster(skia.ImageInfo.MakeN32Premul(font_size + 4, font_size + 4))
     canvas = surface.getCanvas()
     
     canvas.clear(0)
     
-    transform = skia.Matrix()
-    transform.setScale(scale, scale)
-    transform.postTranslate(0, canvas_height)
-    canvas.setMatrix(transform)
+    svg_transform = skia.Matrix()
+    svg_transform.setScale(scale * 0.8, scale * 0.8)
+    svg_transform.postTranslate(0, font_size + 2 - int(950 * scale / 9.375) - 30)
+    canvas.setMatrix(svg_transform)
     
-    dom.setContainerSize(skia.Size.Make(canvas_width / scale, canvas_height / scale))
+    dom.setContainerSize(skia.Size.Make(font_size, font_size))
     dom.render(canvas)
     
     image = surface.makeImageSnapshot()
@@ -540,6 +537,8 @@ def render_svg_glyph(
     img = img.convert("RGBA")
     
     ttFont.close()
+    
+    baseline_offset = int(ascent * scale) + 2
     
     return (img, baseline_offset)
 
