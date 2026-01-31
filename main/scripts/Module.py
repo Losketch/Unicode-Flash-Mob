@@ -26,8 +26,8 @@ class Config:
     unicode_file: Path = Path.cwd() / 'Unicode.txt'
     output_dir: Path = Path.cwd() / 'png'
     font_files: list[Path] = None
-    ctrl_font_file: Path = Path('Ctrl-Ctrl.ttf')
-    bottom_font_file: Path = Path.cwd() / 'PressStart2P-1.ttf'
+    ctrl_font_file: Path = Path('resources/fonts/Ctrl-Ctrl.ttf')
+    bottom_font_file: Path = Path.cwd() / 'resources/fonts/PressStart2P-1.ttf'
     music_file: Path = Path.cwd() / 'DUTM.m4a'
     middle_font_size: int = 512
     bottom_font_size: int = 19

@@ -2,10 +2,10 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 
-static DEFAULT_MODULE_PY: &str = include_str!("../main/Module.py");
+static DEFAULT_MODULE_PY: &str = include_str!("../main/scripts/Module.py");
 
 fn restore_default_module() -> io::Result<()> {
-    let out_path = Path::new("Module.py");
+    let out_path = Path::new("scripts/Module.py");
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)?;
     }

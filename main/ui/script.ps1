@@ -2,9 +2,7 @@
 [CmdletBinding()]
 param()
 
-Set-Location -Path $PSScriptRoot
-
-$html = Join-Path $PSScriptRoot 'ui/index.html'
+$html = Join-Path $PSScriptRoot 'index.html'
 if (Test-Path $html) {
     Start-Process -FilePath $html
 } else {
