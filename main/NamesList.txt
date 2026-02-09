@@ -1,3 +1,20 @@
+; charset=UTF-8
+@@@	The Unicode Standard 17.0.0
+@@@+	NamesList-17.0.0.txt
+@+	Generation Date: 2025-07-30, 17:12:45 GMT
+	Unicode 17.0.0 final names list.
+	This file is semi-automatically derived from UnicodeData.txt and
+	a set of manually created annotations using a script to select
+	or suppress information from the data file. The rules used
+	for this process are aimed at readability for the human reader,
+	at the expense of some details; therefore, this file should not
+	be parsed for machine-readable information.
+@+		© 2025 Unicode®, Inc.
+	For terms of use and license, see https://www.unicode.org/terms_of_use.html
+@@	0000	C0 Controls and Basic Latin (Basic Latin)	007F
+@@+
+@		C0 controls
+@+		Alias names are those for ISO/IEC 6429:1992. Commonly used alternative aliases are also shown.
 0000	<control>
 	= NULL
 0001	<control>
