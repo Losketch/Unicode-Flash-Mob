@@ -42,6 +42,10 @@ pub fn main() -> io::Result<()> {
             "https://unicode.org/Public/latest/ucd/Blocks.txt",
             "UnicodeBlocks.txt",
         ),
+        (
+            "https://www.unicode.org/Public/17.0.0/ucd/NamesList.txt",
+            "NamesList.txt",
+        ),
     ];
 
     for (url, filename) in &targets {
