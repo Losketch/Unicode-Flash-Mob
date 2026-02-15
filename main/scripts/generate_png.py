@@ -116,15 +116,50 @@ def precompute_blend_colors(cfg: Config, bg_colors: list) -> tuple[dict, dict]:
 
     return blend_cache, overlay_cache
 
-def preprocess_descriptions(entries: list[UnicodeEntry]) -> dict[str, str]:
+def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> str:
+    """自动换行函数：将文本按最大宽度分割成多行"""
+    lines = []
+    original_lines = text.split('\n')
+    
+    for line in original_lines:
+        if not line:
+            lines.append('')
+            continue
+        
+        words = list(line)
+        current_line = ''
+        
+        for word in words:
+            test_line = current_line + word
+            bbox = font.getbbox(test_line)
+            if bbox is None:
+                width = 0
+            else:
+                width = bbox[2] - bbox[0]
+            
+            if width <= max_width or not current_line:
+                current_line = test_line
+            else:
+                lines.append(current_line)
+                current_line = word
+        
+        if current_line:
+            lines.append(current_line)
+    
+    return '\n'.join(lines)
+
+
+def preprocess_descriptions(entries: list[UnicodeEntry], bottom_font: ImageFont.FreeTypeFont, max_width: int) -> dict[str, str]:
     """预处理所有描述文本"""
     processed = {}
     for entry in entries:
         if entry.description:
             desc = entry.description.replace('|', '\n').replace('";"', '\n')
-            processed[entry.code_str] = f"{entry.code_str}\n{desc}"
+            text = f"{entry.code_str}\n{desc}"
         else:
-            processed[entry.code_str] = entry.code_str
+            text = entry.code_str
+        
+        processed[entry.code_str] = wrap_text(text, bottom_font, max_width)
     return processed
 
 def preload_middle_fonts(entries: list[UnicodeEntry], cfg: Config) -> tuple[dict, dict, dict]:
@@ -323,11 +358,18 @@ def generate_image_bytes(
 
     # 底部文字 - 使用预处理的文本
     bottom_text = desc_cache[entry.code_str]
+    
+    # 计算文本行数，调整垂直位置使文字从底部向上显示
+    line_count = bottom_text.count('\n') + 1
+    adjusted_y = precomputed.bottom_text_y - (line_count - 1) * (cfg.bottom_font_size + 5)
+    
     draw.multiline_text(
-        (100, precomputed.bottom_text_y),
+        (100, adjusted_y),
         bottom_text,
         font=bottom_font,
-        fill=blended
+        fill=blended,
+        align='left',
+        spacing=5
     )
 
     # 保存到内存
@@ -449,7 +491,6 @@ def main():
 
     # 预计算和预处理
     precomputed = PrecomputedValues(cfg)
-    desc_cache = preprocess_descriptions(to_process)
 
     # 动态背景和颜色混合缓存
     color_mgr = None
@@ -487,6 +528,10 @@ def main():
     # 加载字体
     bottom_font = ImageFont.truetype(str(cfg.bottom_font_file), cfg.bottom_font_size)
     ctrl_font, ctrl_font_scale = load_font_with_bitmap_fallback(cfg.ctrl_font_file, cfg.middle_font_size, "Ctrl ")
+
+    # 计算最大宽度（图像宽度减去左右边距）
+    max_text_width = cfg.image_size[0] - 200
+    desc_cache = preprocess_descriptions(to_process, bottom_font, max_text_width)
 
     middle_font_cache, metrics_cache, font_scale_cache = preload_middle_fonts(to_process, cfg)
 
