@@ -126,11 +126,23 @@ def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> str:
             lines.append('')
             continue
         
-        words = list(line)
+        # 尝试按单词分割（如果有空格），否则按字符分割
+        if ' ' in line:
+            words = line.split(' ')
+        else:
+            words = list(line)
+        
         current_line = ''
         
         for word in words:
-            test_line = current_line + word
+            # 如果当前行是空的，直接添加单词（即使单个单词超过宽度）
+            if not current_line:
+                test_line = word
+            else:
+                # 如果有空格分隔，需要添加空格
+                separator = ' ' if ' ' in line else ''
+                test_line = current_line + separator + word
+            
             bbox = font.getbbox(test_line)
             if bbox is None:
                 width = 0
