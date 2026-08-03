@@ -1,0 +1,11 @@
+
+node_modules/
+.pnpm-store/
+dist/
+target/
+src-tauri/target/
+__pycache__/
+
+# Generated output and local test data.
+output/
+*.mp4

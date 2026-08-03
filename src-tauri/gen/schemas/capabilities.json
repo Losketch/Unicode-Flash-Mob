@@ -1,0 +1,1 @@
+{"main-capability":{"identifier":"main-capability","description":"Permissions required by the main application window.","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","dialog:allow-save"]}}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Unicode Flash Mob",
+  "version": "3.0.0",
+  "identifier": "com.unicodeflashmob.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Unicode Flash Mob",
+        "width": 950,
+        "height": 705,
+        "minWidth": 760,
+        "minHeight": 540,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "font-src": "'self' data:",
+        "img-src": "'self' blob: data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "style-src-elem": "'self' 'unsafe-inline'",
+        "style-src-attr": "'unsafe-inline'"
+      },
+      "devCsp": null,
+      "capabilities": [
+        "main-capability"
+      ],
+      "dangerousDisableAssetCspModification": [
+        "style-src",
+        "style-src-elem"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "assets"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "category": "Video",
+    "shortDescription": "Unicode flash-video generator",
+    "longDescription": "Extract Unicode characters from fonts and render them into animated videos."
+  }
+}

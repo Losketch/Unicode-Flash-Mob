@@ -1,0 +1,5 @@
+[target.x86_64-pc-windows-gnu]
+# GNU ld is particularly slow for a Tauri binary. GCC can delegate to LLVM LLD,
+# which is installed with this development environment and handles the same
+# linker arguments much faster.
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]

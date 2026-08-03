@@ -1,0 +1,34 @@
+{
+  "name": "unicode-flash-mob",
+  "private": true,
+  "version": "3.0.0",
+  "packageManager": "pnpm@11.18.0+sha512.33d83c77da82f49fba836925c6f1b841181ec3132b670639bd012f7075f5c7cf634c5f870147c19aae7478fac01df09d8892e880454896edd23ee9b33757563c",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.0",
+    "@emotion/styled": "^11.11.0",
+    "@hello-pangea/dnd": "^18.0.1",
+    "@mui/icons-material": "^5.15.0",
+    "@mui/material": "^5.15.0",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "i18next": "^26.3.6",
+    "notistack": "^3.0.2",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-i18next": "^17.0.11",
+    "react-router-dom": "^7.18.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0"
+  }
+}
