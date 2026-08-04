@@ -159,19 +159,18 @@ impl UnicodeDataManager {
     }
 
     pub fn get_description(&self, cp: u32) -> String {
-        if let Some(info) = self.data.get(&cp) {
-            let mut parts = Vec::new();
+        let block = self
+            .get_block(cp)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "No_Block".to_string());
+        let name = self
+            .data
+            .get(&cp)
+            .map(|info| info.name.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("UNDEFINED_CHARACTERS");
 
-            if let Some(block) = &info.block {
-                parts.push(block.clone());
-            }
-
-            parts.push(info.name.clone());
-
-            parts.join("\n")
-        } else {
-            String::new()
-        }
+        format!("{}\n{}", block, name)
     }
 
     pub fn get_name(&self, cp: u32) -> String {
@@ -226,4 +225,55 @@ pub fn find_unicode_data_files() -> (PathBuf, PathBuf) {
     let data_path = data_dir.join("UnicodeData.txt");
     let blocks_path = data_dir.join("UnicodeBlocks.txt");
     (data_path, blocks_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{UnicodeDataManager, UnicodeInfo};
+    use std::collections::HashMap;
+
+    #[test]
+    fn description_uses_block_and_undefined_placeholder_when_data_is_missing() {
+        let manager = UnicodeDataManager {
+            data: HashMap::new(),
+            block_ranges: vec![(0x0000, 0x007F, "Basic Latin".to_string())],
+        };
+
+        assert_eq!(
+            manager.get_description(0x0037),
+            "Basic Latin\nUNDEFINED_CHARACTERS"
+        );
+    }
+
+    #[test]
+    fn description_uses_no_block_and_character_name_when_block_is_missing() {
+        let mut data = HashMap::new();
+        data.insert(
+            0xFFFD,
+            UnicodeInfo {
+                name: "REPLACEMENT CHARACTER".to_string(),
+                category: "So".to_string(),
+                block: None,
+            },
+        );
+        let manager = UnicodeDataManager {
+            data,
+            block_ranges: Vec::new(),
+        };
+
+        assert_eq!(
+            manager.get_description(0xFFFD),
+            "No_Block\nREPLACEMENT CHARACTER"
+        );
+    }
+
+    #[test]
+    fn description_uses_both_placeholders_when_data_and_block_are_missing() {
+        let manager = UnicodeDataManager::empty();
+
+        assert_eq!(
+            manager.get_description(0x0378),
+            "No_Block\nUNDEFINED_CHARACTERS"
+        );
+    }
 }

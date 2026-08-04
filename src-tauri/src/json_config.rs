@@ -786,7 +786,7 @@ impl Default for RenderConfig {
             bottom_text: TextElement {
                 id: "bottom".to_string(),
                 fonts: bottom_fonts,
-                content: "{code} {description}".to_string(),
+                content: "{code}\n{description}".to_string(),
                 position: Position { x: 0.05, y: 0.95 },
                 color: Color {
                     r: 0,
