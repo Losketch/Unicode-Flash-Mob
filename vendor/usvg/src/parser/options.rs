@@ -76,6 +76,14 @@ pub struct Options<'a> {
     /// Default: `(100, 100)`
     pub default_size: Size,
 
+    /// Supplies a host viewport size when the outer SVG width or height is
+    /// relative (including the SVG default `100%`), while preserving an
+    /// authored `viewBox`. Explicit numeric root dimensions retain their own
+    /// viewport.
+    ///
+    /// Default: `None`
+    pub forced_size: Option<Size>,
+
     /// Specifies the way `xlink:href` in `<image>` elements should be handled.
     ///
     /// Default: see type's documentation for details
@@ -113,6 +121,7 @@ impl Default for Options<'_> {
             text_rendering: TextRendering::default(),
             image_rendering: ImageRendering::default(),
             default_size: Size::from_wh(100.0, 100.0).unwrap(),
+            forced_size: None,
             image_href_resolver: ImageHrefResolver::default(),
             #[cfg(feature = "text")]
             font_resolver: FontResolver::default(),

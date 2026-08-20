@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Box, CircularProgress, Paper, Typography } from "@mui/material";
+import { Alert, Box, CircularProgress, Paper, Typography } from "@mui/material";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import type { RenderConfig } from "../types/config";
@@ -32,6 +32,7 @@ const FramePreviewCanvas: React.FC<FramePreviewCanvasProps> = ({
     let disposed = false;
     const timer = window.setTimeout(async () => {
       setLoading(true);
+      setError(null);
       try {
         const bytes = await invoke<number[]>("render_frame_preview", {
           config,
@@ -81,10 +82,22 @@ const FramePreviewCanvas: React.FC<FramePreviewCanvasProps> = ({
           alt={t("currentFrame")}
           sx={{ maxWidth: "100%", maxHeight: "72vh", objectFit: "contain", borderRadius: 2 }}
         />
+      ) : error ? (
+        <Alert severity="error" sx={{ width: "100%" }}>
+          {error}
+        </Alert>
       ) : (
         <Typography color="text.secondary" align="center">
-          {error || t("previewEmpty")}
+          {t("previewEmpty")}
         </Typography>
+      )}
+      {imageUrl && error && (
+        <Alert
+          severity="error"
+          sx={{ position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 2 }}
+        >
+          {error}
+        </Alert>
       )}
       {loading && (
         <Box

@@ -18,6 +18,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import type { RenderConfig } from "../types/config";
+import { normalizeRenderConfig } from "../utils/config";
 import type { DragDropPayload } from "../types/events";
 
 const StartPage: React.FC = () => {
@@ -104,7 +105,7 @@ const StartPage: React.FC = () => {
     if (!file) return;
     try {
       const text = await file.text();
-      const config = JSON.parse(text) as RenderConfig;
+      const config = normalizeRenderConfig(JSON.parse(text) as RenderConfig);
       navigate("/editor", { state: { config } });
     } catch (e) {
       enqueueSnackbar(`${t("start:loadFailed")}: ${e}`, { variant: "error" });

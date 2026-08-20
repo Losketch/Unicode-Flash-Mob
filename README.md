@@ -10,8 +10,8 @@ Unicode Flash Mob 是一个以 Rust、Tauri 和 React 构建的 Unicode 字形�
 
 - 从 TTF、OTF 等字体中提取 Unicode 映射并生成配置。
 - 使用 `U+XXXX`、`/glyphName` 和 `#glyphIndex` 选择字形。
-- 对三种选择器统一应用 OpenType feature、可变字体轴和 optical sizing。
-- 支持彩色字体、字体回退、组合字符、底部说明文字和事件动画。
+- Unicode 选择器通过 Parley/HarfRust 应用 OpenType shaping、feature、可变字体轴与 optical sizing；`{fontIndex}` 只固定该 Unicode run 使用的字体，连续且 fontIndex 相同的码点仍一起 shaping。只有显式 `/glyphName` 与 `#glyphIndex` 保持 exact-glyph 语义并绕过 GSUB/GPOS substitution。
+- 支持有序场景组件、每组件字体回退、彩色字体、组合字符和事件动画。
 - 支持单进程编码与分段多进程编码，并限制在途 RGBA 帧以控制内存占用。
 - 提供桌面 GUI 与独立 CLI。
 
@@ -120,9 +120,95 @@ cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features 
   font-preview --font ./example.ttf --text "ffi" --feature liga=1 --variation wght=650
 ```
 
+## 场景组件与配置版本
+
+配置 schema 当前为 `4`。画面不再固定为一个 `main_text` 和一个 `bottom_text`，而是由有序的 `components` 数组组成；数组顺序就是绘制顺序，后面的组件覆盖前面的组件。
+
+目前实现两种基础组件：
+
+- `glyph`：用于 Unicode 码点、glyph name、glyph index 等字形选择器。Unicode 内容会作为完整 text run shaping；Unicode 后的 `{fontIndex}` 用于固定该 run 的字体而不关闭 shaping，`/glyphName` 与 `#glyphIndex` 才保留 exact-glyph 语义。
+- `text`：用于说明文字、Unicode 元数据和自定义文本。由 Parley/HarfRust 完成 text-run shaping、Bidi、cluster、GSUB/GPOS、换行和字体 fallback，最终字形交给 Swash / usvg-resvg paint backend。
+- Phase 2 的 paint backend 使用局部 4× supersampling：普通 outline、COLR v0、彩色 bitmap 由 Swash 4× raster，COLR v1 / SVG-in-OpenType 由 resvg 4× raster，再以 alpha-aware box downsample 合成到目标帧。连接脚本的单色 glyph coverage 会先在高分辨率网格做 union，再降采样，避免目标分辨率 AA 边缘重复叠加。
+- SVG-in-OpenType 按 OpenType 的 em-square 初始 viewport、y-down/baseline-y=0 语义解析；resvg 负责 selected-node bbox 本地化，caller 只保留目标像素的 subpixel offset，避免对 SVG ink bbox 重复平移和裁切。
+
+每个文字相关组件独立持有 `fonts` 与 `font`，因此可以分别设置字号、fallback、OpenType feature、variation axis 与 optical sizing。例如：
+
+```json
+{
+  "schema_version": 4,
+  "components": [
+    {
+      "type": "glyph",
+      "id": "main",
+      "enabled": true,
+      "content": "{glyph}",
+      "position": { "x": 0.5, "y": 0.5 },
+      "color": { "r": 0, "g": 0, "b": 0, "a": 128 },
+      "fonts": ["assets/fonts/Example.ttf"],
+      "font": {
+        "size": 512,
+        "font_feature_settings": { "liga": 1 },
+        "font_variation_settings": { "wght": 650 },
+        "font_optical_sizing": true
+      },
+      "overlay_combining_mark": true
+    },
+    {
+      "type": "text",
+      "id": "caption",
+      "enabled": true,
+      "content": "{code}\n{description}",
+      "position": { "x": 0.05, "y": 0.95 },
+      "color": { "r": 0, "g": 0, "b": 0, "a": 192 },
+      "fonts": ["assets/fonts/Caption.ttf"],
+      "font": {
+        "size": 42,
+        "font_feature_settings": {},
+        "font_variation_settings": {},
+        "font_optical_sizing": true
+      },
+      "align": "left",
+      "wrap": true,
+      "max_width": 0.9
+    }
+  ]
+}
+```
+
+v3 的 `main_font`、`bottom_font`、`main_text`、`bottom_text` 仍可读取。加载后后端会将它们迁移为默认 `glyph`/`text` 组件；再次保存时写出 v4 结构。高于当前版本的 schema 会被拒绝加载或保存，避免旧版程序把未来组件/字段静默降级并造成数据丢失。
+
+## 内容模板项
+
+所有 `glyph` / `text` 组件的 `content` 都先经过统一的模板解析器。内建占位符包括：
+
+- `{char}`：当前选择器中可还原出的 Unicode 文本。
+- `{glyph}`：当前 `characters[].code_point` 字形选择器表达式。
+- `{code}`：当前 `characters[].code_point` 字形选择器表达式。
+- `{description}`：Unicode 数据中的字符名称或配置中的描述。
+
+`content_templates` 还可以定义命名模板：
+
+```json
+{
+  "content_templates": {
+    "label": {
+      "type": "text",
+      "value": "{char} — {description}"
+    },
+    "lookup": {
+      "type": "external",
+      "executable": "./tools/lookup.exe",
+      "args": ["{code}", "{label}"]
+    }
+  }
+}
+```
+
+组件中可写 `"content": "{label}"` 或 `"content": "{lookup}"`。命名模板可以引用其他模板；循环引用会报错。外部模板直接启动指定可执行文件而**不经过 shell**，每个 `args` 项都是独立参数，使用 UTF-8 stdout 作为模板结果。相同的可执行文件与已解析参数组合在一次渲染任务中会复用缓存结果，避免逐帧重复启动进程。
+
 ## 字形选择与 OpenType 设置
 
-`characters[].code_point` 支持串联多个选择器：
+`characters[].code_point` 与 `glyph` 组件解析后的内容支持串联多个选择器：
 
 ```text
 U+0041
@@ -132,11 +218,11 @@ U+0033U+0034
 U+0041{1}
 ```
 
-`{1}` 表示使用 `main_text.fonts` 中索引为 1 的字体。`font_feature_settings` 与 `font_variation_settings` 使用四字符 OpenType tag：
+`{1}` 表示强制使用**当前 glyph 组件** `fonts` 中索引为 1 的字体；不写索引时按该组件自己的字体列表 fallback。`font_feature_settings` 与 `font_variation_settings` 使用四字符 OpenType tag：
 
 ```json
 {
-  "main_font": {
+  "font": {
     "size": 512,
     "font_feature_settings": {
       "liga": 1,
@@ -151,21 +237,12 @@ U+0041{1}
 }
 ```
 
-对于 `/glyphName` 和 `#glyphIndex`，渲染器会保持显式 glyph ID 语义，同时通过与 Unicode 选择器相同的 OpenType-aware 渲染路径应用 feature 和 variation axis。
+Unicode 选择器（包括单一码点和多码点序列）会作为 Unicode text run 交给 Parley/HarfRust，因此 `liga`、`kern`、`mark`、`mkmk`、`locl` 等适用的 GSUB/GPOS feature 可以参与 shaping；variation selector、emoji modifier 与 ZWJ sequence 也不会再被逐 scalar 拆开。
+当同一 glyph 表达式混合 Unicode selector 与 `/glyphName`、`#glyphIndex` 时，Unicode 部分仍以连续 run 独立 shaping；exact selector 只在边界处打断 shaping。Unicode `{fontIndex}` 是 font pin：相邻且 index 相同的码点会保持为同一个 shaping run，index 改变才形成新的 shaping 边界。混合表达式中的 Unicode run 会保留准备阶段生成的同一个 Parley layout 到最终 paint，不再为“测宽”和“绘制”分别 shape 两次。
 
-## 底部文字模板
+对于 `/glyphName` 与 `#glyphIndex`（可选再带 `{fontIndex}` 指定从哪一个字体取该显式 glyph），渲染器保持 exact glyph ID 语义：**不会执行 GSUB/GPOS substitution，也不会因为 `font_feature_settings` 把它替换成另一个 glyph**。但 `font_variation_settings` 与 `font_optical_sizing` 仍会应用到该字形实例的 paint、advance、bbox 与垂直 metrics。
 
-`bottom_text.content` 支持以下占位符：
-
-- `{char}`：当前 Unicode 字符；显式 glyph name/index 无对应字符时显示替代字符。
-- `{code}`：当前 `characters[].code_point` 选择器表达式。
-- `{description}`：Unicode 数据中的字符名称或配置中的描述。
-
-示例：
-
-```text
-{char}  {code}  {description}
-```
+同一个表达式可以混合 exact selector 与普通 Unicode selector。例如 `#83/zeroU+0030` 会切成两个 exact glyph 与一个 Unicode shaping run；最后的 `U+0030` 仍可响应 `zero`、`salt`、`locl` 等适用 feature。`U+0041{2}U+030A{2}` 则会作为一个固定到字体 2 的 Unicode run 共同 shaping。不会跨 `/glyphName`、`#glyphIndex` 或不同的 `{fontIndex}` 边界执行 ligature、kerning 或 mark attachment。
 
 ## 可选资源
 

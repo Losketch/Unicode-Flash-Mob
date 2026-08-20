@@ -61,7 +61,9 @@ pub fn extract_to_config(
     if absolute_fonts.is_empty() {
         anyhow::bail!("At least one font file is required");
     }
-    config.main_text.fonts = absolute_fonts.clone();
+    if let Some(component) = config.primary_glyph_component_mut() {
+        component.fonts = absolute_fonts.clone();
+    }
 
     config.output_path = match video_output {
         Some(video) if video.is_absolute() => video.to_path_buf(),
@@ -71,8 +73,10 @@ pub fn extract_to_config(
             .join(crate::json_config::default_output_filename()),
     };
 
-    config.bottom_text.fonts = crate::json_config::bundled_font_paths("fonts/IBMPlexSans-Bold.ttf");
-    config.bottom_text.enabled = !config.bottom_text.fonts.is_empty();
+    if let Some(component) = config.primary_text_component_mut() {
+        component.fonts = crate::json_config::bundled_font_paths("fonts/IBMPlexSans-Bold.ttf");
+        component.enabled = !component.fonts.is_empty();
+    }
 
     let (data_path, blocks_path) = unicode_data::find_unicode_data_files();
     let unicode_manager = UnicodeDataManager::load(&data_path, &blocks_path).unwrap_or_else(|e| {

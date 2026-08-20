@@ -345,14 +345,31 @@ impl SvgColorExt for svgtypes::Color {
 ///
 /// - If `Document` doesn't have an SVG node - returns an empty tree.
 /// - If `Document` doesn't have a valid size - returns `Error::InvalidSize`.
-pub(crate) fn convert_doc(svg_doc: &svgtree::Document, opt: &Options) -> Result<Tree, Error> {
+pub(crate) fn convert_doc(
+    svg_doc: &svgtree::Document,
+    opt: &Options,
+    relative_root_size: bool,
+) -> Result<Tree, Error> {
     let svg = svg_doc.root_element();
-    let (size, restore_viewbox) = resolve_svg_size(&svg, opt);
-    let size = size?;
+    let (resolved_size, restore_viewbox) = resolve_svg_size(&svg, opt);
+    let resolved_size = resolved_size?;
+    // `forced_size` is a host viewport fallback, not an unconditional resize.
+    // Apply it only when the outer SVG width/height is relative (including the
+    // SVG default 100%). Explicit numeric root dimensions retain the authored
+    // viewport; this is required by OpenType-SVG fonts such as VF-Canto.
+    let forced_size_applied = opt.forced_size.is_some() && relative_root_size;
+    let size = if forced_size_applied {
+        opt.forced_size.unwrap_or(resolved_size)
+    } else {
+        resolved_size
+    };
     let view_box = ViewBox {
+        // When the host overrides the outer viewport, an authored width/height
+        // without a viewBox still defines the SVG user-space extent. Keeping
+        // the resolved document size here preserves that scale relationship.
         rect: svg
             .parse_viewbox()
-            .unwrap_or_else(|| size.to_non_zero_rect(0.0, 0.0)),
+            .unwrap_or_else(|| resolved_size.to_non_zero_rect(0.0, 0.0)),
         aspect: svg.attribute(AId::PreserveAspectRatio).unwrap_or_default(),
     };
 
@@ -460,7 +477,7 @@ pub(crate) fn convert_doc(svg_doc: &svgtree::Document, opt: &Options) -> Result<
         tree.fontdb = cache.fontdb;
     }
 
-    if restore_viewbox {
+    if restore_viewbox && !forced_size_applied {
         calculate_svg_bbox(&mut tree);
     }
 
@@ -500,7 +517,6 @@ fn resolve_svg_size(svg: &SvgNode, opt: &Options) -> (Result<Size, Error>, bool)
     let def = Length::new(100.0, Unit::Percent);
     let mut width: Length = svg.attribute(AId::Width).unwrap_or(def);
     let mut height: Length = svg.attribute(AId::Height).unwrap_or(def);
-
     let view_box = svg.parse_viewbox();
 
     let restore_viewbox =

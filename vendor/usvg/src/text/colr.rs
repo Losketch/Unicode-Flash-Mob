@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::parser::OptionLog;
+use crate::{Options, Tree};
 use rustybuzz::ttf_parser;
 
 struct Builder<'a>(&'a mut String);
@@ -185,7 +186,7 @@ impl<'a> GlyphPainter<'a> {
     }
 
     fn paint_sweep_gradient(&mut self, _: ttf_parser::colr::SweepGradient<'a>) {
-        println!("Warning: sweep gradients are not supported.");
+        log::warn!("COLR sweep gradients are not supported by the current usvg paint backend.");
     }
 }
 
@@ -285,7 +286,7 @@ impl<'a> ttf_parser::colr::Painter<'a> for GlyphPainter<'a> {
             CompositeMode::Color => "color",
             CompositeMode::Luminosity => "luminosity",
             _ => {
-                println!("Warning: unsupported blend mode: {:?}", mode);
+                log::warn!("Unsupported COLR blend mode: {:?}", mode);
                 "normal"
             }
         };
@@ -340,4 +341,52 @@ impl<'a> ttf_parser::colr::Painter<'a> for GlyphPainter<'a> {
 
         self.clip_with_path(&clip_path);
     }
+}
+
+/// Convert one COLR/CPAL glyph into a renderable tree without any text shaping.
+///
+/// The caller owns glyph selection. This helper only evaluates the selected
+/// glyph's COLR paint graph, applying variable-font coordinates before paint.
+pub(crate) fn glyph_tree(
+    data: &[u8],
+    face_index: u32,
+    glyph_id: ttf_parser::GlyphId,
+    palette_index: u16,
+    foreground: ttf_parser::RgbaColor,
+    variations: &[(&str, f32)],
+) -> Option<Tree> {
+    let mut face = ttf_parser::Face::parse(data, face_index).ok()?;
+    for (tag, value) in variations {
+        let bytes = tag.as_bytes();
+        if bytes.len() != 4 {
+            continue;
+        }
+        let tag = ttf_parser::Tag::from_bytes(&[bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let _ = face.set_variation(tag, *value);
+    }
+
+    let mut svg = xmlwriter::XmlWriter::new(xmlwriter::Options::default());
+    svg.start_element("svg");
+    svg.write_attribute("xmlns", "http://www.w3.org/2000/svg");
+    svg.write_attribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+
+    let mut path_buf = String::with_capacity(256);
+    svg.start_element("g");
+    svg.write_attribute_fmt("id", format_args!("glyph{}", glyph_id.0));
+
+    let mut glyph_painter = GlyphPainter {
+        face: &face,
+        svg: &mut svg,
+        path_buf: &mut path_buf,
+        gradient_index: 1,
+        clip_path_index: 1,
+        palette_index,
+        transform: ttf_parser::Transform::default(),
+        outline_transform: ttf_parser::Transform::default(),
+        transforms_stack: vec![ttf_parser::Transform::default()],
+    };
+
+    face.paint_color_glyph(glyph_id, palette_index, foreground, &mut glyph_painter)?;
+    svg.end_element();
+    Tree::from_data(svg.end_document().as_bytes(), &Options::default()).ok()
 }

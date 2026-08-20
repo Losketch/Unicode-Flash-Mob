@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { loadStoredJson, saveStoredJson } from "../utils/storage";
 import type { RenderConfig } from "../types/config";
+import { normalizeRenderConfig } from "../utils/config";
 
 export interface WorkflowState {
   config: RenderConfig | null;
@@ -23,9 +24,11 @@ const DEFAULT_STATE: WorkflowState = {
 };
 
 function loadState(): WorkflowState {
+  const stored = loadStoredJson<Partial<WorkflowState>>(STORAGE_KEY, {});
   return {
     ...DEFAULT_STATE,
-    ...loadStoredJson<Partial<WorkflowState>>(STORAGE_KEY, {}),
+    ...stored,
+    config: stored.config ? normalizeRenderConfig(stored.config) : null,
   };
 }
 

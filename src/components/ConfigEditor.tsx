@@ -25,15 +25,14 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import BackgroundColorList from "./BackgroundColorList";
 import ColorField from "./ColorField";
 import ConfigSection from "./ConfigSection";
-import FontList from "./FontList";
-import JsonEditor from "./JsonEditorField";
+import SceneComponentsEditor from "./SceneComponentsEditor";
+import ContentTemplatesEditor from "./ContentTemplatesEditor";
 import { useSettings } from "../contexts/SettingsContext";
 import { setNestedValue } from "../utils/config";
 import type {
   Color,
   RenderConfig,
   RenderConfigPath,
-  TextElement,
 } from "../types/config";
 
 interface ConfigEditorProps {
@@ -177,99 +176,6 @@ const ConfigEditor: React.FC<ConfigEditorProps> = ({ config, onConfigChange }) =
     );
   };
 
-  const renderTextElement = (
-    path: "main_text" | "bottom_text",
-    title: string
-  ) => {
-    const element: TextElement = config[path];
-    return (
-      <Stack spacing={2}>
-        <Typography variant="subtitle1">{title}</Typography>
-        <Grid container spacing={2} sx={{ width: "100%", margin: 0 }}>
-          <Grid item xs={12} sm={path === "bottom_text" ? 4 : 12}>
-            <TextField
-              fullWidth
-              label={t("config:elementId")}
-              value={element.id || ""}
-              onChange={(event) => updateConfig(`${path}.id`, event.target.value)}
-            />
-          </Grid>
-          {path === "bottom_text" && (
-            <Grid item xs={12} sm={8}>
-              <TextField
-                fullWidth
-                label={t("config:textContent")}
-                value={element.content || ""}
-                onChange={(event) => updateConfig(`${path}.content`, event.target.value)}
-              />
-            </Grid>
-          )}
-          <Grid item xs={6} sm={3}>
-            <TextField
-              fullWidth
-              type="number"
-              label={t("config:positionX")}
-              value={element.position?.x ?? 0}
-              onChange={(event) => updateConfig(`${path}.position.x`, Number(event.target.value))}
-            />
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <TextField
-              fullWidth
-              type="number"
-              label={t("config:positionY")}
-              value={element.position?.y ?? 0}
-              onChange={(event) => updateConfig(`${path}.position.y`, Number(event.target.value))}
-            />
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <FormControl fullWidth>
-              <InputLabel>{t("config:textAlign")}</InputLabel>
-              <Select
-                label={t("config:textAlign")}
-                value={element.align || "left"}
-                onChange={(event) => updateConfig(`${path}.align`, event.target.value)}
-              >
-                <MenuItem value="left">{t("config:alignLeft")}</MenuItem>
-                <MenuItem value="center">{t("config:alignCenter")}</MenuItem>
-                <MenuItem value="right">{t("config:alignRight")}</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <TextField
-              fullWidth
-              type="number"
-              label={t("config:maxWidth")}
-              value={element.max_width ?? 0}
-              onChange={(event) => updateConfig(`${path}.max_width`, Number(event.target.value))}
-            />
-          </Grid>
-        </Grid>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={Boolean(element.enabled)}
-                onChange={(event) => updateConfig(`${path}.enabled`, event.target.checked)}
-              />
-            }
-            label={t("config:elementEnabled")}
-          />
-          <FormControlLabel
-            control={
-              <Switch
-                checked={Boolean(element.wrap)}
-                onChange={(event) => updateConfig(`${path}.wrap`, event.target.checked)}
-              />
-            }
-            label={t("config:textWrap")}
-          />
-        </Stack>
-        {renderColorPicker(`${path}.color`, element.color, t("config:textColor"))}
-      </Stack>
-    );
-  };
 
   const backgroundColors = Array.isArray(config.background_colors)
     ? config.background_colors
@@ -392,114 +298,64 @@ const ConfigEditor: React.FC<ConfigEditorProps> = ({ config, onConfigChange }) =
             )}
 
             {section(
-              t("config:font"),
+              t("config:sceneComponents"),
               <Stack spacing={3}>
-                <Stack spacing={2}>
-                  <Typography variant="subtitle1">{t("config:mainFont")}</Typography>
-                  <JsonEditor
-                    label={t("config:fontFeatureSettings")}
-                    value={config.main_font?.font_feature_settings || {}}
-                    onCommit={(value) => updateConfig("main_font.font_feature_settings", value)}
-                    invalidMessage={t("config:invalidJson")}
-                    hint={t("config:fontFeatureHint")}
-                  />
-                  <JsonEditor
-                    label={t("config:fontVariationSettings")}
-                    value={config.main_font?.font_variation_settings || {}}
-                    onCommit={(value) => updateConfig("main_font.font_variation_settings", value)}
-                    invalidMessage={t("config:invalidJson")}
-                    hint={t("config:fontVariationHint")}
-                  />
+                <SceneComponentsEditor
+                  components={config.components ?? []}
+                  onChange={(components) =>
+                    onConfigChange({ ...config, components })
+                  }
+                />
+                <Divider />
+                <ContentTemplatesEditor
+                  templates={config.content_templates ?? {}}
+                  onChange={(content_templates) =>
+                    onConfigChange({ ...config, content_templates })
+                  }
+                />
+                <Divider />
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2">
+                    {t("config:legacyTextOffsets")}
+                  </Typography>
+                  <Grid container spacing={2} sx={{ width: "100%", margin: 0 }}>
+                    <Grid item xs={6}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label={t("config:textXOffset")}
+                        value={config.text_x_offset ?? 0}
+                        onChange={(event) =>
+                          updateConfig("text_x_offset", parseInt(event.target.value) || 0)
+                        }
+                      />
+                    </Grid>
+                    <Grid item xs={6}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label={t("config:textYOffset")}
+                        value={config.text_y_offset ?? 0}
+                        onChange={(event) =>
+                          updateConfig("text_y_offset", parseInt(event.target.value) || 0)
+                        }
+                      />
+                    </Grid>
+                  </Grid>
                   <FormControlLabel
                     control={
                       <Switch
-                        checked={config.main_font?.font_optical_sizing !== false}
+                        checked={Boolean(config.overlay_enabled)}
                         onChange={(event) =>
-                          updateConfig("main_font.font_optical_sizing", event.target.checked)
+                          updateConfig("overlay_enabled", event.target.checked)
                         }
                       />
                     }
-                    label={t("config:fontOpticalSizing")}
+                    label={t("config:overlayEnabled")}
                   />
                 </Stack>
-                <Divider />
-                <Stack spacing={2}>
-                  <Typography variant="subtitle1">{t("config:bottomFont")}</Typography>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label={t("config:bottomFontSize")}
-                    value={config.bottom_font?.size || 42}
-                    onChange={(event) =>
-                      updateConfig("bottom_font.size", Number(event.target.value) || 1)
-                    }
-                  />
-                  <FontList
-                    fonts={config.bottom_text?.fonts ?? []}
-                    onChange={(fonts) => updateConfig("bottom_text.fonts", fonts)}
-                    label={t("config:bottomFontPath")}
-                    multiple
-                  />
-                  <JsonEditor
-                    label={t("config:fontFeatureSettings")}
-                    value={config.bottom_font?.font_feature_settings || {}}
-                    onCommit={(value) => updateConfig("bottom_font.font_feature_settings", value)}
-                    invalidMessage={t("config:invalidJson")}
-                    hint={t("config:fontFeatureHint")}
-                  />
-                  <JsonEditor
-                    label={t("config:fontVariationSettings")}
-                    value={config.bottom_font?.font_variation_settings || {}}
-                    onCommit={(value) => updateConfig("bottom_font.font_variation_settings", value)}
-                    invalidMessage={t("config:invalidJson")}
-                    hint={t("config:fontVariationHint")}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={config.bottom_font?.font_optical_sizing !== false}
-                        onChange={(event) =>
-                          updateConfig("bottom_font.font_optical_sizing", event.target.checked)
-                        }
-                      />
-                    }
-                    label={t("config:fontOpticalSizing")}
-                  />
-                </Stack>
-              </Stack>
-            )}
-
-            {section(
-              t("config:textLayout"),
-              <Stack spacing={3}>
-                <Grid container spacing={2} sx={{ width: "100%", margin: 0 }}>
-                  <Grid item xs={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      label={t("config:textXOffset")}
-                      value={config.text_x_offset ?? 0}
-                      onChange={(event) =>
-                        updateConfig("text_x_offset", parseInt(event.target.value) || 0)
-                      }
-                    />
-                  </Grid>
-                  <Grid item xs={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      label={t("config:textYOffset")}
-                      value={config.text_y_offset ?? 0}
-                      onChange={(event) =>
-                        updateConfig("text_y_offset", parseInt(event.target.value) || 0)
-                      }
-                    />
-                  </Grid>
-                </Grid>
-                {renderTextElement("main_text", t("config:mainText"))}
-                <Divider />
-                {renderTextElement("bottom_text", t("config:bottomText"))}
-              </Stack>
+              </Stack>,
+              true
             )}
 
             {section(
@@ -527,17 +383,6 @@ const ConfigEditor: React.FC<ConfigEditorProps> = ({ config, onConfigChange }) =
                       />
                     }
                     label={t("config:fixedBackground")}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={Boolean(config.overlay_enabled)}
-                        onChange={(event) =>
-                          updateConfig("overlay_enabled", event.target.checked)
-                        }
-                      />
-                    }
-                    label={t("config:overlayEnabled")}
                   />
                 </Stack>
                 {renderColorPicker(

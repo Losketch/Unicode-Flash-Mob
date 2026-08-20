@@ -30,12 +30,13 @@ import FontList from "../components/FontList";
 import FramePreviewCanvas from "../components/FramePreviewCanvas";
 import PreviewPanel from "../components/PreviewPanel";
 import { useWorkflow } from "../contexts/WorkflowContext";
-import { mergeExtractedConfig, setNestedValue } from "../utils/config";
+import { mergeExtractedConfig } from "../utils/config";
+import { getPrimaryGlyphComponent } from "../types/config";
 import type {
   CharEntry,
   Color,
+  GlyphComponent,
   RenderConfig,
-  RenderConfigPath,
 } from "../types/config";
 
 const EditorPage: React.FC = () => {
@@ -73,9 +74,18 @@ const EditorPage: React.FC = () => {
   }, [config?.characters?.length, entryIndex]);
 
   const updateConfig = (next: RenderConfig) => setConfig(next);
-  const updateBasic = (path: RenderConfigPath, value: unknown) => {
+
+  const updatePrimaryGlyph = (patch: Partial<GlyphComponent>) => {
     if (!config) return;
-    updateConfig(setNestedValue(config, path, value));
+    let updated = false;
+    const components = config.components.map((component) => {
+      if (!updated && component.type === "glyph") {
+        updated = true;
+        return { ...component, ...patch };
+      }
+      return component;
+    });
+    updateConfig({ ...config, components });
   };
 
   const updateCurrentEntry = (patch: Partial<CharEntry>) => {
@@ -98,7 +108,7 @@ const EditorPage: React.FC = () => {
 
   const handleExtract = async () => {
     if (!config) return;
-    const fonts = config.main_text?.fonts ?? [];
+    const fonts = getPrimaryGlyphComponent(config)?.fonts ?? [];
     if (!fonts.length) {
       enqueueSnackbar(t("addFontFirst"), { variant: "error" });
       return;
@@ -122,6 +132,7 @@ const EditorPage: React.FC = () => {
 
   const entry = config?.characters?.[entryIndex];
   const charactersCount = config?.characters?.length ?? 0;
+  const primaryGlyph = getPrimaryGlyphComponent(config);
 
   return (
     <Stack spacing={3}>
@@ -142,8 +153,8 @@ const EditorPage: React.FC = () => {
               </Typography>
               <Stack spacing={2}>
                 <FontList
-                  fonts={config?.main_text?.fonts ?? []}
-                  onChange={(fonts) => updateBasic("main_text.fonts", fonts)}
+                  fonts={primaryGlyph?.fonts ?? []}
+                  onChange={(fonts) => updatePrimaryGlyph({ fonts })}
                   label={t("mainFonts")}
                   multiple
                 />
@@ -151,7 +162,7 @@ const EditorPage: React.FC = () => {
                   variant="outlined"
                   startIcon={<AutoFixHighIcon />}
                   onClick={handleExtract}
-                  disabled={extracting || !config?.main_text?.fonts?.length}
+                  disabled={extracting || !primaryGlyph?.fonts?.length}
                 >
                   {extracting ? t("extracting") : t("extractFromFonts")}
                 </Button>
@@ -159,8 +170,16 @@ const EditorPage: React.FC = () => {
                   fullWidth
                   type="number"
                   label={t("mainFontSize")}
-                  value={config?.main_font?.size ?? 512}
-                  onChange={(event) => updateBasic("main_font.size", Number(event.target.value) || 1)}
+                  value={primaryGlyph?.font.size ?? 512}
+                  onChange={(event) =>
+                    primaryGlyph &&
+                    updatePrimaryGlyph({
+                      font: {
+                        ...primaryGlyph.font,
+                        size: Number(event.target.value) || 1,
+                      },
+                    })
+                  }
                 />
                 <Stack spacing={0.5}>
                   <Typography variant="subtitle2">

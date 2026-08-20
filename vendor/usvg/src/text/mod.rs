@@ -7,11 +7,40 @@ use fontdb::{Database, ID};
 use svgtypes::FontFamily;
 
 use self::layout::DatabaseExt;
-use crate::{Cache, Font, FontStretch, FontStyle, Text};
+use crate::{Cache, Font, FontStretch, FontStyle, Text, Tree};
 
 pub(crate) mod flatten;
 
 mod colr;
+
+/// Convert a single COLR/CPAL glyph into a renderable tree without running
+/// usvg's text layout or shaping pipeline.
+///
+/// This is intended for callers that already resolved a glyph ID with their
+/// own shaping engine. COLR paint support remains best-effort and follows the
+/// same limitations as usvg's built-in text flattening.
+pub fn colr_glyph_to_tree(
+    data: &[u8],
+    face_index: u32,
+    glyph_id: u16,
+    palette_index: u16,
+    foreground: [u8; 4],
+    variations: &[(&str, f32)],
+) -> Option<Tree> {
+    colr::glyph_tree(
+        data,
+        face_index,
+        rustybuzz::ttf_parser::GlyphId(glyph_id),
+        palette_index,
+        rustybuzz::ttf_parser::RgbaColor::new(
+            foreground[0],
+            foreground[1],
+            foreground[2],
+            foreground[3],
+        ),
+        variations,
+    )
+}
 /// Provides access to the layout of a text node.
 pub mod layout;
 

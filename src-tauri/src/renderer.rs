@@ -1,16 +1,21 @@
-use crate::font_loader::FontLoader;
+use crate::content_template::{ContentTemplateResolver, TemplateContext};
+use crate::font_loader::{validate_settings, FontLoader};
 use crate::json_config::{
-    duration_to_frames, AnimationCurve, CharEntry, Color, EventType, FontConfig, GlyphSelector,
-    GlyphSpec, Position, RenderConfig,
+    duration_to_frames, AnimationCurve, CharEntry, EventType, GlyphSpec, RenderConfig,
+    CURRENT_SCHEMA_VERSION,
+};
+use crate::scene::{Color, FontConfig, GlyphSelector, Position, SceneComponent};
+use crate::typography_renderer::{
+    CenteredUnicodeRequest, ExplicitGlyphLayoutMetrics, ExplicitGlyphRequest,
+    PreparedUnicodeLayout, TextPlacement, TypographyRenderer,
 };
 use crate::unicode_data::UnicodeDataManager;
-use ab_glyph::Font;
 use anyhow::{Context, Result};
 use crossbeam_channel::{bounded, unbounded};
 use image::{codecs::png::PngEncoder, ColorType, ImageEncoder, RgbaImage};
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -90,8 +95,8 @@ fn load_preview_unicode_manager() -> Arc<UnicodeDataManager> {
 #[derive(Clone, Default)]
 struct RenderState {
     current_bg_color: Color,
-    text_colors: HashMap<String, Color>,
-    text_positions: HashMap<String, Position>,
+    component_colors: HashMap<String, Color>,
+    component_positions: HashMap<String, Position>,
     animating_events: Vec<ActiveAnimation>,
     pause_frames_remaining: u64,
 }
@@ -111,12 +116,13 @@ struct FrameJob {
     index: u64,
     entry_index: usize,
     background_color: Color,
-    main_text_color: Color,
-    main_position: Position,
-    bottom_text_color: Color,
-    bottom_position: Position,
-    main_font_index: Option<usize>,
-    main_glyphs: Vec<ResolvedGlyph>,
+    component_states: HashMap<String, ComponentFrameState>,
+}
+
+#[derive(Clone)]
+struct ComponentFrameState {
+    color: Color,
+    position: Position,
 }
 
 #[derive(Clone)]
@@ -135,7 +141,7 @@ struct ActiveAnimation {
 
 #[derive(Clone)]
 enum AnimationType {
-    MoveText {
+    MoveComponent {
         element_id: String,
         start_pos: Position,
         end_pos: Position,
@@ -208,69 +214,6 @@ fn typographic_glyph_origin(
     )
 }
 
-fn measure_text_width(text: &str, fonts: &[Arc<FontLoader>]) -> i32 {
-    let mut width = 0i32;
-    for c in text.chars() {
-        if let Some(font) = fonts
-            .iter()
-            .find(|font| font.has_char(c))
-            .or_else(|| fonts.last())
-        {
-            width += font.glyph_width(c) as i32;
-        }
-    }
-    width
-}
-
-fn wrap_text(
-    text: &str,
-    max_width: i32,
-    fonts: &[Arc<FontLoader>],
-    _font_size: i32,
-) -> Vec<String> {
-    let mut result = Vec::new();
-
-    for line in text.lines() {
-        if line.is_empty() {
-            result.push(String::new());
-            continue;
-        }
-
-        if measure_text_width(line, fonts) <= max_width {
-            result.push(line.to_string());
-        } else {
-            let mut current_line = String::new();
-            let mut current_width = 0i32;
-
-            for c in line.chars() {
-                let Some(font) = fonts
-                    .iter()
-                    .find(|font| font.has_char(c))
-                    .or_else(|| fonts.last())
-                else {
-                    continue;
-                };
-                let char_width = font.glyph_width(c) as i32;
-
-                if !current_line.is_empty() && current_width + char_width > max_width {
-                    result.push(current_line.clone());
-                    current_line = c.to_string();
-                    current_width = char_width;
-                } else {
-                    current_line.push(c);
-                    current_width += char_width;
-                }
-            }
-
-            if !current_line.is_empty() {
-                result.push(current_line);
-            }
-        }
-    }
-
-    result
-}
-
 fn update_animations(state: &mut RenderState, frame: u64) {
     let animations = std::mem::take(&mut state.animating_events);
 
@@ -278,13 +221,13 @@ fn update_animations(state: &mut RenderState, frame: u64) {
         let elapsed = frame.saturating_sub(anim.start_frame);
         if elapsed >= anim.duration_frames {
             match &anim.animation_type {
-                AnimationType::MoveText {
+                AnimationType::MoveComponent {
                     element_id,
                     end_pos,
                     ..
                 } => {
                     state
-                        .text_positions
+                        .component_positions
                         .insert(element_id.clone(), end_pos.clone());
                 }
                 AnimationType::ColorTransition { end_color, .. } => {
@@ -298,13 +241,15 @@ fn update_animations(state: &mut RenderState, frame: u64) {
             .curve
             .apply(elapsed as f64 / anim.duration_frames as f64);
         match &anim.animation_type {
-            AnimationType::MoveText {
+            AnimationType::MoveComponent {
                 element_id,
                 start_pos,
                 end_pos,
             } => {
                 let position = lerp_position(start_pos.clone(), end_pos.clone(), t);
-                state.text_positions.insert(element_id.clone(), position);
+                state
+                    .component_positions
+                    .insert(element_id.clone(), position);
             }
             AnimationType::ColorTransition {
                 start_color,
@@ -330,18 +275,20 @@ fn process_events(
                 EventType::SetBackgroundColor { color } => {
                     state.current_bg_color = color.clone();
                 }
-                EventType::SetTextColor { element_id, color } => {
-                    state.text_colors.insert(element_id.clone(), color.clone());
+                EventType::SetComponentColor { element_id, color } => {
+                    state
+                        .component_colors
+                        .insert(element_id.clone(), color.clone());
                 }
-                EventType::SetTextPosition {
+                EventType::SetComponentPosition {
                     element_id,
                     position,
                 } => {
                     state
-                        .text_positions
+                        .component_positions
                         .insert(element_id.clone(), position.clone());
                 }
-                EventType::MoveTextPosition {
+                EventType::MoveComponentPosition {
                     element_id,
                     start_position,
                     end_position,
@@ -353,7 +300,7 @@ fn process_events(
                         start_frame: frame,
                         duration_frames,
                         curve: curve.clone(),
-                        animation_type: AnimationType::MoveText {
+                        animation_type: AnimationType::MoveComponent {
                             element_id: element_id.clone(),
                             start_pos: start_position.clone(),
                             end_pos: end_position.clone(),
@@ -523,6 +470,14 @@ fn validate_position(position: &Position, label: &str) -> Result<()> {
 }
 
 fn validate_render_config(config: &RenderConfig, require_frames: bool) -> Result<()> {
+    if config.schema_version > CURRENT_SCHEMA_VERSION {
+        anyhow::bail!(
+            "Unsupported configuration schema {}; this build supports up to {}",
+            config.schema_version,
+            CURRENT_SCHEMA_VERSION
+        );
+    }
+
     let (width, height) = config.resolution;
     if width == 0 || height == 0 {
         anyhow::bail!("Resolution must be greater than zero");
@@ -543,27 +498,31 @@ fn validate_render_config(config: &RenderConfig, require_frames: bool) -> Result
     {
         anyhow::bail!("Dynamic background requires at least one color");
     }
-    if config.main_text.id.trim().is_empty() || config.bottom_text.id.trim().is_empty() {
-        anyhow::bail!("Text element IDs must not be empty");
-    }
-    if config.main_text.id == config.bottom_text.id {
-        anyhow::bail!("Main and bottom text must use distinct element IDs");
-    }
 
-    for (label, element, font) in [
-        ("main text", &config.main_text, &config.main_font),
-        ("bottom text", &config.bottom_text, &config.bottom_font),
-    ] {
-        validate_position(&element.position, label)?;
-        if !element.max_width.is_finite() || element.max_width < 0.0 {
-            anyhow::bail!("{label} max_width must be finite and non-negative");
+    let mut component_ids = HashSet::new();
+    for (index, component) in config.components.iter().enumerate() {
+        let id = component.id().trim();
+        if id.is_empty() {
+            anyhow::bail!("Component {index} ID must not be empty");
         }
-        if element.enabled {
-            if !font.size.is_finite() || font.size <= 0.0 {
-                anyhow::bail!("{label} font size must be finite and greater than zero");
+        if !component_ids.insert(id.to_string()) {
+            anyhow::bail!("Duplicate component ID: {id}");
+        }
+        validate_position(component.position(), &format!("component {id} position"))?;
+
+        if component.enabled() {
+            if let Some(font) = component.font() {
+                validate_settings(font)
+                    .with_context(|| format!("Invalid font settings for component {id:?}"))?;
             }
-            if element.fonts.is_empty() {
-                anyhow::bail!("No {label} font configured");
+            if component.fonts().is_some_and(|fonts| fonts.is_empty()) {
+                anyhow::bail!("Component {id} has no font configured");
+            }
+        }
+
+        if let SceneComponent::Text(text) = component {
+            if !text.max_width.is_finite() || text.max_width < 0.0 {
+                anyhow::bail!("Component {id} max_width must be finite and non-negative");
             }
         }
     }
@@ -575,19 +534,34 @@ fn validate_render_config(config: &RenderConfig, require_frames: bool) -> Result
     }
     for (index, event) in config.events.iter().enumerate() {
         match &event.event_type {
-            EventType::SetTextPosition { position, .. } => {
+            EventType::SetComponentPosition {
+                element_id,
+                position,
+            } => {
+                if !component_ids.contains(element_id) {
+                    anyhow::bail!("event {index} targets unknown component {element_id}");
+                }
                 validate_position(position, &format!("event {index} position"))?;
             }
-            EventType::MoveTextPosition {
+            EventType::MoveComponentPosition {
+                element_id,
                 start_position,
                 end_position,
                 duration,
                 ..
             } => {
+                if !component_ids.contains(element_id) {
+                    anyhow::bail!("event {index} targets unknown component {element_id}");
+                }
                 validate_position(start_position, &format!("event {index} start position"))?;
                 validate_position(end_position, &format!("event {index} end position"))?;
                 if !duration.is_finite() || *duration < 0.0 {
                     anyhow::bail!("event {index} duration must be finite and non-negative");
+                }
+            }
+            EventType::SetComponentColor { element_id, .. } => {
+                if !component_ids.contains(element_id) {
+                    anyhow::bail!("event {index} targets unknown component {element_id}");
                 }
             }
             EventType::ColorTransition { duration, .. } | EventType::Pause { duration } => {
@@ -595,7 +569,7 @@ fn validate_render_config(config: &RenderConfig, require_frames: bool) -> Result
                     anyhow::bail!("event {index} duration must be finite and non-negative");
                 }
             }
-            EventType::SetBackgroundColor { .. } | EventType::SetTextColor { .. } => {}
+            EventType::SetBackgroundColor { .. } => {}
         }
     }
 
@@ -628,6 +602,9 @@ pub fn render_frame_png(
     entry_index: usize,
     max_dimension: u32,
 ) -> Result<Vec<u8>> {
+    let mut normalized_config = config.clone();
+    normalized_config.normalize_scene();
+    let config = &normalized_config;
     validate_render_config(config, false)?;
     let entry = config
         .characters
@@ -643,57 +620,49 @@ pub fn render_frame_png(
             (source_width as f32 * scale).round().max(1.0) as u32,
             (source_height as f32 * scale).round().max(1.0) as u32,
         );
-        preview_config.main_font.size *= scale;
-        preview_config.bottom_font.size *= scale;
+        for component in &mut preview_config.components {
+            if let Some(font) = component.font_mut() {
+                font.size *= scale;
+            }
+        }
         preview_config.text_x_offset = (preview_config.text_x_offset as f32 * scale).round() as i32;
         preview_config.text_y_offset = (preview_config.text_y_offset as f32 * scale).round() as i32;
     }
 
-    let main_fonts = load_preview_fonts(
-        &preview_config.main_text.fonts,
-        &preview_config.main_font,
-        preview_config.main_text.enabled,
-    )?;
-    let bottom_fonts = load_preview_fonts(
-        &preview_config.bottom_text.fonts,
-        &preview_config.bottom_font,
-        preview_config.bottom_text.enabled,
-    )?;
+    let mut component_fonts = HashMap::new();
+    for component in &preview_config.components {
+        let fonts = match (component.fonts(), component.font()) {
+            (Some(paths), Some(font)) => load_preview_fonts(paths, font, component.enabled())?,
+            _ => Vec::new(),
+        };
+        component_fonts.insert(component.id().to_string(), fonts);
+    }
 
     let unicode_manager = load_preview_unicode_manager();
-    let main_glyphs = resolve_glyphs(&entry, &main_fonts);
-    let main_font_index = main_glyphs.first().map(|glyph| glyph.font_index);
+    let template_resolver = ContentTemplateResolver::new(preview_config.content_templates.clone());
     let background_color = entry
         .background_color
         .clone()
         .unwrap_or_else(|| preview_config.background_color.clone());
-    let main_text_color = entry
-        .text_color
-        .clone()
-        .unwrap_or_else(|| preview_config.main_text.color.clone());
-    let main_position = entry
-        .position
-        .clone()
-        .unwrap_or_else(|| preview_config.main_text.position.clone());
+    let state = RenderState {
+        current_bg_color: preview_config.background_color.clone(),
+        ..RenderState::default()
+    };
+    let component_states = resolve_component_frame_states(&preview_config, &entry, &state);
     let (width, height) = preview_config.resolution;
     let frame_ctx = FrameRenderCtx {
         config: &preview_config,
         entry: &entry,
-        frame_index: 0,
         background_color: &background_color,
-        main_text_color: &main_text_color,
-        main_position: &main_position,
-        bottom_text_color: &preview_config.bottom_text.color,
-        bottom_position: &preview_config.bottom_text.position,
-        main_font_index,
-        main_glyphs: &main_glyphs,
-        main_fonts: &main_fonts,
-        bottom_fonts: &bottom_fonts,
+        component_states: &component_states,
+        component_fonts: &component_fonts,
+        template_resolver: &template_resolver,
         unicode_manager: &unicode_manager,
         width,
         height,
     };
-    let raw = render_frame_parallel(&frame_ctx)?;
+    let mut typography = TypographyRenderer::new(&component_fonts)?;
+    let raw = render_frame_parallel(&frame_ctx, &mut typography)?;
     let mut png = Vec::new();
     PngEncoder::new(&mut png)
         .write_image(&raw, width, height, ColorType::Rgba8.into())
@@ -752,8 +721,8 @@ struct PreparedRender {
     height: u32,
     total_frames: u64,
     unicode_manager: Arc<UnicodeDataManager>,
-    main_fonts: Vec<Arc<FontLoader>>,
-    bottom_fonts: Vec<Arc<FontLoader>>,
+    component_fonts: HashMap<String, Vec<Arc<FontLoader>>>,
+    template_resolver: Arc<ContentTemplateResolver>,
     ffmpeg_path: PathBuf,
     encoder: String,
     music_path: Option<PathBuf>,
@@ -763,8 +732,8 @@ struct PreparedRender {
 #[derive(Clone, Copy)]
 struct FrameRenderer<'a> {
     config: &'a RenderConfig,
-    main_fonts: &'a [Arc<FontLoader>],
-    bottom_fonts: &'a [Arc<FontLoader>],
+    component_fonts: &'a HashMap<String, Vec<Arc<FontLoader>>>,
+    template_resolver: &'a ContentTemplateResolver,
     unicode_manager: &'a UnicodeDataManager,
     width: u32,
     height: u32,
@@ -774,15 +743,15 @@ impl<'a> FrameRenderer<'a> {
     fn new(config: &'a RenderConfig, prepared: &'a PreparedRender) -> Self {
         Self {
             config,
-            main_fonts: &prepared.main_fonts,
-            bottom_fonts: &prepared.bottom_fonts,
+            component_fonts: &prepared.component_fonts,
+            template_resolver: prepared.template_resolver.as_ref(),
             unicode_manager: prepared.unicode_manager.as_ref(),
             width: prepared.width,
             height: prepared.height,
         }
     }
 
-    fn render_job(self, job: &FrameJob) -> Result<FrameData> {
+    fn render_job(self, job: &FrameJob, typography: &mut TypographyRenderer) -> Result<FrameData> {
         let entry = self
             .config
             .characters
@@ -796,22 +765,16 @@ impl<'a> FrameRenderer<'a> {
         let frame_ctx = FrameRenderCtx {
             config: self.config,
             entry,
-            frame_index: job.index,
             background_color: &job.background_color,
-            main_text_color: &job.main_text_color,
-            main_position: &job.main_position,
-            bottom_text_color: &job.bottom_text_color,
-            bottom_position: &job.bottom_position,
-            main_font_index: job.main_font_index,
-            main_glyphs: &job.main_glyphs,
-            main_fonts: self.main_fonts,
-            bottom_fonts: self.bottom_fonts,
+            component_states: &job.component_states,
+            component_fonts: self.component_fonts,
+            template_resolver: self.template_resolver,
             unicode_manager: self.unicode_manager,
             width: self.width,
             height: self.height,
         };
 
-        render_frame_parallel(&frame_ctx).map(|data| FrameData {
+        render_frame_parallel(&frame_ctx, typography).map(|data| FrameData {
             index: job.index,
             data,
         })
@@ -849,18 +812,22 @@ fn prepare_render(
         }),
     );
 
-    let main_fonts = load_configured_fonts(
-        &config.main_text.fonts,
-        &config.main_font,
-        "main text",
-        config.main_text.enabled,
-    )?;
-    let bottom_fonts = load_configured_fonts(
-        &config.bottom_text.fonts,
-        &config.bottom_font,
-        "bottom text",
-        config.bottom_text.enabled,
-    )?;
+    let mut component_fonts = HashMap::new();
+    for component in &config.components {
+        let fonts = match (component.fonts(), component.font()) {
+            (Some(paths), Some(font)) => load_configured_fonts(
+                paths,
+                font,
+                &format!("component {}", component.id()),
+                component.enabled(),
+            )?,
+            _ => Vec::new(),
+        };
+        component_fonts.insert(component.id().to_string(), fonts);
+    }
+    let template_resolver = Arc::new(ContentTemplateResolver::new(
+        config.content_templates.clone(),
+    ));
 
     let ffmpeg_path = crate::ffmpeg::resolve_ffmpeg_path(Some(config.ffmpeg.path.as_path()));
 
@@ -893,8 +860,8 @@ fn prepare_render(
         height,
         total_frames,
         unicode_manager,
-        main_fonts,
-        bottom_fonts,
+        component_fonts,
+        template_resolver,
         ffmpeg_path,
         encoder,
         music_path,
@@ -987,12 +954,35 @@ fn run_render_loop<W: Write>(
             let jobs = job_receiver.clone();
             let results = result_sender.clone();
             scope.spawn(move || {
-                while let Ok(job) = jobs.recv() {
-                    let rendered = frame_renderer.render_job(&job).map_err(|error| {
-                        format!("Failed to render frame {}: {error:#}", job.index)
+                let typography =
+                    TypographyRenderer::new(frame_renderer.component_fonts).map_err(|error| {
+                        format!("Failed to initialize typography renderer: {error:#}")
                     });
-                    if results.send(rendered).is_err() {
-                        break;
+                match typography {
+                    Ok(mut typography) => {
+                        while let Ok(job) = jobs.recv() {
+                            let rendered = frame_renderer
+                                .render_job(&job, &mut typography)
+                                .map_err(|error| {
+                                    format!("Failed to render frame {}: {error:#}", job.index)
+                                });
+                            if results.send(rendered).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(message) => {
+                        while let Ok(job) = jobs.recv() {
+                            if results
+                                .send(Err(format!(
+                                    "Failed to render frame {}: {message}",
+                                    job.index
+                                )))
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
                     }
                 }
             });
@@ -1012,7 +1002,6 @@ fn run_render_loop<W: Write>(
         while inflight < max_inflight_frames && !source_exhausted {
             match next_frame_job(
                 config,
-                &prepared.main_fonts,
                 &mut state,
                 &mut color_index,
                 &mut entry_index,
@@ -1047,7 +1036,6 @@ fn run_render_loop<W: Write>(
                 if !source_exhausted {
                     match next_frame_job(
                         config,
-                        &prepared.main_fonts,
                         &mut state,
                         &mut color_index,
                         &mut entry_index,
@@ -1098,6 +1086,9 @@ pub fn render_video_with_progress(
     config: &RenderConfig,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
 ) -> Result<()> {
+    let mut normalized_config = config.clone();
+    normalized_config.normalize_scene();
+    let config = &normalized_config;
     let prepared = prepare_render(config, progress_callback)?;
 
     if config.ffmpeg.encoding_processes.max(1) > 1 && prepared.total_frames > 1 {
@@ -1108,10 +1099,7 @@ pub fn render_video_with_progress(
 }
 
 /// Precompute every mutable decision before starting parallel encoders.
-fn precompute_frame_schedule(
-    config: &RenderConfig,
-    main_fonts: &[Arc<FontLoader>],
-) -> Vec<FrameJob> {
+fn precompute_frame_schedule(config: &RenderConfig) -> Vec<FrameJob> {
     let mut frames = Vec::new();
     let mut state = initial_render_state(config);
     let mut color_index = 0usize;
@@ -1121,7 +1109,6 @@ fn precompute_frame_schedule(
 
     while let Some(job) = next_frame_job(
         config,
-        main_fonts,
         &mut state,
         &mut color_index,
         &mut entry_index,
@@ -1426,7 +1413,7 @@ fn mux_music(
 
 fn render_video_multi_process(config: &RenderConfig, prepared: &PreparedRender) -> Result<()> {
     println!("Precomputing frame schedule...");
-    let frames = precompute_frame_schedule(config, &prepared.main_fonts);
+    let frames = precompute_frame_schedule(config);
     let frame_renderer = FrameRenderer::new(config, prepared);
 
     let process_count = config
@@ -1566,6 +1553,7 @@ fn render_video_multi_process(config: &RenderConfig, prepared: &PreparedRender) 
             let outputs = Arc::clone(&rendered_senders);
             let permits = Arc::clone(&permit_receivers);
             render_handles.push(scope.spawn(move || -> Result<()> {
+                let mut typography = TypographyRenderer::new(frame_renderer.component_fonts)?;
                 while let Ok(task) = tasks.recv() {
                     permits[task.segment_index].recv().map_err(|_| {
                         anyhow::anyhow!(
@@ -1574,9 +1562,12 @@ fn render_video_multi_process(config: &RenderConfig, prepared: &PreparedRender) 
                         )
                     })?;
                     let job = &frames_ref[task.frame_offset];
-                    let rendered = frame_renderer.render_job(job).map_err(|error| {
-                        format!("Failed to render frame {}: {error:#}", job.index)
-                    });
+                    let rendered =
+                        frame_renderer
+                            .render_job(job, &mut typography)
+                            .map_err(|error| {
+                                format!("Failed to render frame {}: {error:#}", job.index)
+                            });
 
                     outputs[task.segment_index].send(rendered).map_err(|_| {
                         anyhow::anyhow!(
@@ -1668,47 +1659,91 @@ fn initial_render_state(config: &RenderConfig) -> RenderState {
     }
 }
 
-/// Resolve one frame lazily so memory scales with `max_inflight_frames`, not video length.
-fn resolve_glyphs(entry: &CharEntry, main_fonts: &[Arc<FontLoader>]) -> Vec<ResolvedGlyph> {
-    if main_fonts.is_empty() {
-        return Vec::new();
-    }
-    entry
-        .glyph_specs()
-        .into_iter()
-        .map(|spec: GlyphSpec| {
-            if let Some(font_index) = spec.font_index {
-                let font_index = font_index.min(main_fonts.len() - 1);
-                let selector = if main_fonts[font_index].has_selector(&spec.selector) {
-                    spec.selector
-                } else {
-                    GlyphSelector::Name(".notdef".to_string())
-                };
-                return ResolvedGlyph {
-                    selector,
-                    font_index,
-                };
-            }
-            match main_fonts
-                .iter()
-                .position(|font| font.has_selector(&spec.selector))
-            {
-                Some(font_index) => ResolvedGlyph {
-                    selector: spec.selector,
-                    font_index,
-                },
-                None => ResolvedGlyph {
-                    selector: GlyphSelector::Name(".notdef".to_string()),
-                    font_index: main_fonts.len() - 1,
-                },
-            }
+fn resolve_component_frame_states(
+    config: &RenderConfig,
+    entry: &CharEntry,
+    state: &RenderState,
+) -> HashMap<String, ComponentFrameState> {
+    let primary_glyph_id = config
+        .primary_glyph_component()
+        .map(|component| component.id.as_str());
+    config
+        .components
+        .iter()
+        .map(|component| {
+            let id = component.id();
+            let is_primary_glyph = primary_glyph_id == Some(id);
+            let color = state
+                .component_colors
+                .get(id)
+                .cloned()
+                .or_else(|| {
+                    if is_primary_glyph {
+                        entry.text_color.clone()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| component.color().clone());
+            let position = state
+                .component_positions
+                .get(id)
+                .cloned()
+                .or_else(|| {
+                    if is_primary_glyph {
+                        entry.position.clone()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| component.position().clone());
+            (id.to_string(), ComponentFrameState { color, position })
         })
+        .collect()
+}
+
+/// Resolve one explicit glyph selector against a component's font fallback list.
+fn resolve_glyph_spec(spec: GlyphSpec, fonts: &[Arc<FontLoader>]) -> Option<ResolvedGlyph> {
+    if fonts.is_empty() {
+        return None;
+    }
+    if let Some(font_index) = spec.font_index {
+        let font_index = font_index.min(fonts.len() - 1);
+        let selector = if fonts[font_index].has_selector(&spec.selector) {
+            spec.selector
+        } else {
+            GlyphSelector::Name(".notdef".to_string())
+        };
+        return Some(ResolvedGlyph {
+            selector,
+            font_index,
+        });
+    }
+    match fonts
+        .iter()
+        .position(|font| font.has_selector(&spec.selector))
+    {
+        Some(font_index) => Some(ResolvedGlyph {
+            selector: spec.selector,
+            font_index,
+        }),
+        None => Some(ResolvedGlyph {
+            selector: GlyphSelector::Name(".notdef".to_string()),
+            font_index: fonts.len() - 1,
+        }),
+    }
+}
+
+/// Resolve a glyph-selector expression against one component's font fallback list.
+fn resolve_glyphs(expression: &str, fonts: &[Arc<FontLoader>]) -> Vec<ResolvedGlyph> {
+    CharEntry::glyph_specs_from(expression)
+        .into_iter()
+        .filter_map(|spec| resolve_glyph_spec(spec, fonts))
         .collect()
 }
 
 fn next_frame_job(
     config: &RenderConfig,
-    main_fonts: &[Arc<FontLoader>],
     state: &mut RenderState,
     color_index: &mut usize,
     entry_index: &mut usize,
@@ -1730,47 +1765,16 @@ fn next_frame_job(
         update_animations(state, *frame_index);
         let is_paused = state.pause_frames_remaining > 0;
 
-        // Control code points use the same main-font GlyphId path as every
-        // other selector. If the font has no mapped control glyph, the normal
-        // fallback resolves to that font's .notdef glyph.
-        let main_glyphs = resolve_glyphs(entry, main_fonts);
-        let main_font_index = main_glyphs.first().map(|glyph| glyph.font_index);
         let background_color = entry
             .background_color
             .clone()
             .unwrap_or_else(|| state.current_bg_color.clone());
-        let main_text_color = state
-            .text_colors
-            .get(&config.main_text.id)
-            .cloned()
-            .or_else(|| entry.text_color.clone())
-            .unwrap_or_else(|| config.main_text.color.clone());
-        let main_position = state
-            .text_positions
-            .get(&config.main_text.id)
-            .cloned()
-            .or_else(|| entry.position.clone())
-            .unwrap_or_else(|| config.main_text.position.clone());
-        let bottom_text_color = state
-            .text_colors
-            .get(&config.bottom_text.id)
-            .cloned()
-            .unwrap_or_else(|| config.bottom_text.color.clone());
-        let bottom_position = state
-            .text_positions
-            .get(&config.bottom_text.id)
-            .cloned()
-            .unwrap_or_else(|| config.bottom_text.position.clone());
+        let component_states = resolve_component_frame_states(config, entry, state);
         let job = FrameJob {
             index: *frame_index,
             entry_index: *entry_index,
             background_color,
-            main_text_color,
-            main_position,
-            bottom_text_color,
-            bottom_position,
-            main_font_index,
-            main_glyphs,
+            component_states,
         };
 
         if is_paused {
@@ -1786,16 +1790,10 @@ fn next_frame_job(
 struct FrameRenderCtx<'a> {
     config: &'a RenderConfig,
     entry: &'a CharEntry,
-    frame_index: u64,
     background_color: &'a Color,
-    main_text_color: &'a Color,
-    main_position: &'a Position,
-    bottom_text_color: &'a Color,
-    bottom_position: &'a Position,
-    main_font_index: Option<usize>,
-    main_glyphs: &'a [ResolvedGlyph],
-    main_fonts: &'a [Arc<FontLoader>],
-    bottom_fonts: &'a [Arc<FontLoader>],
+    component_states: &'a HashMap<String, ComponentFrameState>,
+    component_fonts: &'a HashMap<String, Vec<Arc<FontLoader>>>,
+    template_resolver: &'a ContentTemplateResolver,
     unicode_manager: &'a UnicodeDataManager,
     width: u32,
     height: u32,
@@ -1810,253 +1808,675 @@ fn fill_frame_background(image: &mut RgbaImage, color: &Color) {
     }
 }
 
-fn render_combining_overlay(
-    ctx: &FrameRenderCtx,
-    font: &FontLoader,
+struct CombiningOverlayRequest<'a, 'ctx> {
+    ctx: &'a FrameRenderCtx<'ctx>,
+    state: &'a ComponentFrameState,
+    font: &'a FontLoader,
+    font_config: &'a FontConfig,
     codepoint: u32,
-    anchor_x: i32,
-    anchor_y: i32,
-    image: &mut RgbaImage,
-) {
-    if !ctx.config.overlay_enabled || !ctx.unicode_manager.is_combining_mark(codepoint) {
-        return;
-    }
-
-    let overlay_char = '\u{25CC}';
-    let overlay_color =
-        flatten_color_over_background(ctx.main_text_color, ctx.background_color, 0.5);
-    let overlay_glyph = font.font().glyph_id(overlay_char);
-    let overlay_glyph_scaled =
-        overlay_glyph.with_scale_and_position(font.px_scale(), ab_glyph::Point { x: 0.0, y: 0.0 });
-    let (x, y) = if let Some(outline) = font.font().outline_glyph(overlay_glyph_scaled) {
-        let bounds = outline.px_bounds();
-        let center_x = (bounds.min.x + bounds.max.x) / 2.0;
-        let center_y = (bounds.min.y + bounds.max.y) / 2.0;
-        (
-            anchor_x - center_x as i32 + ctx.config.text_x_offset,
-            anchor_y - center_y as i32 + ctx.config.text_y_offset,
-        )
-    } else {
-        let width = font.glyph_width(overlay_char) as i32;
-        let (ascent, descent) = font.metrics();
-        let baseline =
-            anchor_y + ((ascent + descent) / 2.0).round() as i32 + ctx.config.text_y_offset;
-        (anchor_x - width / 2 + ctx.config.text_x_offset, baseline)
-    };
-
-    font.render_to_image(overlay_char, image, x, y, overlay_color);
+    anchor: (i32, i32),
 }
 
-fn render_main_glyphs(
-    ctx: &FrameRenderCtx,
+fn render_combining_overlay(
+    request: CombiningOverlayRequest<'_, '_>,
+    typography: &mut TypographyRenderer,
     image: &mut RgbaImage,
-    origin_x: i32,
-    origin_y: i32,
+) -> Result<()> {
+    if !request.ctx.config.overlay_enabled
+        || !request
+            .ctx
+            .unicode_manager
+            .is_combining_mark(request.codepoint)
+    {
+        return Ok(());
+    }
+
+    let glyph_id = request
+        .font
+        .glyph_id_for_selector(&GlyphSelector::CodePoint(0x25CC));
+    let metrics =
+        typography.explicit_glyph_layout_metrics(request.font, glyph_id.0, request.font_config)?;
+    let (origin_x, origin_y) = typographic_glyph_origin(
+        request.anchor,
+        metrics.advance,
+        metrics.outline_center_x,
+        metrics.ascent,
+        metrics.descent,
+    );
+    let overlay_color = Color {
+        r: request.state.color.r,
+        g: request.state.color.g,
+        b: request.state.color.b,
+        a: u16::from(request.state.color.a).div_ceil(2) as u8,
+    };
+    let handled = typography.render_explicit_glyph(
+        ExplicitGlyphRequest {
+            font: request.font,
+            glyph_id: glyph_id.0,
+            config: request.font_config,
+            position: (origin_x as f32, origin_y as f32),
+            color: overlay_color.clone(),
+        },
+        image,
+    )?;
+    if !handled {
+        let fallback_color =
+            flatten_color_over_background(&overlay_color, request.ctx.background_color, 1.0);
+        request
+            .font
+            .render_glyph_id_to_image(glyph_id, image, origin_x, origin_y, fallback_color);
+    }
+    Ok(())
+}
+
+struct PreparedExplicitGlyph<'a> {
+    font: &'a FontLoader,
+    glyph_id: ab_glyph::GlyphId,
+    metrics: ExplicitGlyphLayoutMetrics,
+}
+
+fn prepare_explicit_glyphs<'a>(
+    glyphs: &[ResolvedGlyph],
+    fonts: &'a [Arc<FontLoader>],
+    font_config: &FontConfig,
+    typography: &TypographyRenderer,
+) -> Result<Vec<PreparedExplicitGlyph<'a>>> {
+    glyphs
+        .iter()
+        .map(|glyph| {
+            let font = fonts
+                .get(glyph.font_index)
+                .or_else(|| fonts.last())
+                .context("Glyph component is enabled without a loaded font")?;
+            let glyph_id = font.glyph_id_for_selector(&glyph.selector);
+            let metrics =
+                typography.explicit_glyph_layout_metrics(font, glyph_id.0, font_config)?;
+            Ok(PreparedExplicitGlyph {
+                font,
+                glyph_id,
+                metrics,
+            })
+        })
+        .collect()
+}
+
+struct PreparedGlyphRenderRequest<'a> {
+    glyphs: &'a [PreparedExplicitGlyph<'a>],
+    font_config: &'a FontConfig,
+    color: &'a Color,
+    background_color: &'a Color,
+    origin: (i32, i32),
+}
+
+fn render_resolved_glyphs(
+    request: PreparedGlyphRenderRequest<'_>,
+    typography: &mut TypographyRenderer,
+    image: &mut RgbaImage,
 ) -> Result<()> {
     let fallback_color =
-        flatten_color_over_background(ctx.main_text_color, ctx.background_color, 1.0);
-    let advanced_color = (
-        ctx.main_text_color.r,
-        ctx.main_text_color.g,
-        ctx.main_text_color.b,
-        ctx.main_text_color.a,
-    );
-    let mut cursor_x = origin_x;
+        flatten_color_over_background(request.color, request.background_color, 1.0);
+    let mut cursor_x = request.origin.0 as f32;
 
-    for glyph in ctx.main_glyphs {
-        let font = ctx
-            .main_fonts
-            .get(glyph.font_index)
-            .or_else(|| ctx.main_fonts.last())
-            .context("Main text is enabled without a loaded font")?;
-        let glyph_id = font.glyph_id_for_selector(&glyph.selector);
-        let handled_advanced = match glyph.selector {
-            GlyphSelector::CodePoint(value) => char::from_u32(value)
-                .map(|character| {
-                    font.render_advanced_to_image(
-                        character,
-                        image,
-                        cursor_x,
-                        origin_y,
-                        advanced_color,
-                    )
-                })
-                .transpose()?
-                .unwrap_or(false),
-            GlyphSelector::Name(_) | GlyphSelector::Index(_) => font
-                .render_advanced_glyph_to_image(
-                    glyph_id,
-                    image,
-                    cursor_x,
-                    origin_y,
-                    advanced_color,
-                )?,
-        };
-
-        if !handled_advanced {
-            font.render_glyph_id_to_image(glyph_id, image, cursor_x, origin_y, fallback_color);
+    for glyph in request.glyphs {
+        let handled = typography.render_explicit_glyph(
+            ExplicitGlyphRequest {
+                font: glyph.font,
+                glyph_id: glyph.glyph_id.0,
+                config: request.font_config,
+                position: (cursor_x, request.origin.1 as f32),
+                color: request.color.clone(),
+            },
+            image,
+        )?;
+        if !handled {
+            glyph.font.render_glyph_id_to_image(
+                glyph.glyph_id,
+                image,
+                cursor_x.round() as i32,
+                request.origin.1,
+                fallback_color,
+            );
         }
-        cursor_x += font.glyph_width_id(glyph_id).round() as i32;
+        cursor_x += glyph.metrics.advance;
     }
     Ok(())
 }
 
-fn format_text_template(template: &str, entry: &CharEntry) -> String {
-    let selected_text: String = entry
-        .glyph_specs()
-        .into_iter()
-        .filter_map(|spec| match spec.selector {
-            GlyphSelector::CodePoint(codepoint) => char::from_u32(codepoint),
+fn resolve_component_content(ctx: &FrameRenderCtx<'_>, content: &str) -> Result<String> {
+    let character = ctx.entry.selected_unicode_text();
+    let template_context = TemplateContext {
+        character: &character,
+        glyph_expression: ctx.entry.code_point.trim(),
+        description: &ctx.entry.description,
+    };
+    ctx.template_resolver.resolve(content, &template_context)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GlyphSequenceSegment {
+    Unicode {
+        text: String,
+        font_index: Option<usize>,
+    },
+    Exact(GlyphSpec),
+}
+
+fn flush_unicode_segment(
+    segments: &mut Vec<GlyphSequenceSegment>,
+    unicode: &mut String,
+    font_index: &mut Option<usize>,
+) {
+    if !unicode.is_empty() {
+        segments.push(GlyphSequenceSegment::Unicode {
+            text: std::mem::take(unicode),
+            font_index: *font_index,
+        });
+    }
+    *font_index = None;
+}
+
+fn glyph_sequence_segments(specs: &[GlyphSpec]) -> Vec<GlyphSequenceSegment> {
+    let mut segments = Vec::new();
+    let mut unicode = String::new();
+    let mut unicode_font_index: Option<usize> = None;
+
+    for spec in specs {
+        match &spec.selector {
+            GlyphSelector::CodePoint(value) => {
+                let Some(character) = char::from_u32(*value) else {
+                    flush_unicode_segment(&mut segments, &mut unicode, &mut unicode_font_index);
+                    segments.push(GlyphSequenceSegment::Exact(spec.clone()));
+                    continue;
+                };
+                if !unicode.is_empty() && unicode_font_index != spec.font_index {
+                    flush_unicode_segment(&mut segments, &mut unicode, &mut unicode_font_index);
+                }
+                if unicode.is_empty() {
+                    unicode_font_index = spec.font_index;
+                }
+                unicode.push(character);
+            }
+            GlyphSelector::Name(_) | GlyphSelector::Index(_) => {
+                flush_unicode_segment(&mut segments, &mut unicode, &mut unicode_font_index);
+                segments.push(GlyphSequenceSegment::Exact(spec.clone()));
+            }
+        }
+    }
+    flush_unicode_segment(&mut segments, &mut unicode, &mut unicode_font_index);
+    segments
+}
+
+fn unicode_shaping_sequence(specs: &[GlyphSpec]) -> Option<String> {
+    if specs.is_empty() || specs.iter().any(|spec| spec.font_index.is_some()) {
+        return None;
+    }
+    specs
+        .iter()
+        .map(|spec| match spec.selector {
+            GlyphSelector::CodePoint(value) => char::from_u32(value),
             GlyphSelector::Name(_) | GlyphSelector::Index(_) => None,
         })
-        .collect();
-    let selected_text = if selected_text.is_empty() {
-        entry.code_point.as_str()
-    } else {
-        selected_text.as_str()
-    };
-
-    template
-        .replace("{char}", selected_text)
-        .replace("{code}", entry.code_point.trim())
-        .replace("{description}", entry.description.as_str())
+        .collect()
 }
 
-fn render_bottom_information(ctx: &FrameRenderCtx, image: &mut RgbaImage) -> Result<()> {
-    if !ctx.config.bottom_text.enabled {
-        return Ok(());
+enum PreparedMixedSegment<'a> {
+    Unicode(Box<PreparedUnicodeLayout>),
+    Exact(PreparedExplicitGlyph<'a>),
+}
+
+impl PreparedMixedSegment<'_> {
+    fn width(&self) -> f32 {
+        match self {
+            Self::Unicode(layout) => layout.width(),
+            Self::Exact(glyph) => glyph.metrics.advance,
+        }
     }
+}
 
-    let bottom_color = ctx.bottom_text_color;
-    let blended = flatten_color_over_background(bottom_color, ctx.background_color, 1.0);
-    let text = format_text_template(&ctx.config.bottom_text.content, ctx.entry);
-    if text.is_empty() {
-        return Ok(());
-    }
+fn render_mixed_glyph_segments(
+    ctx: &FrameRenderCtx<'_>,
+    component: &crate::scene::GlyphComponent,
+    state: &ComponentFrameState,
+    fonts: &[Arc<FontLoader>],
+    specs: &[GlyphSpec],
+    typography: &mut TypographyRenderer,
+    image: &mut RgbaImage,
+) -> Result<()> {
+    let default_font_size = fonts
+        .first()
+        .map(|font| font.render_size())
+        .unwrap_or(component.font.size);
+    let center = (
+        (state.position.x * ctx.width as f64) as f32 + ctx.config.text_x_offset as f32,
+        (state.position.y * ctx.height as f64) as f32 + ctx.config.text_y_offset as f32,
+    );
+    let segments = glyph_sequence_segments(specs);
+    let mut prepared = Vec::with_capacity(segments.len());
 
-    let font_size = ctx.config.bottom_font.size as i32;
-    let base_x = (ctx.bottom_position.x * ctx.width as f64) as i32;
-    let base_y = (ctx.bottom_position.y * ctx.height as f64) as i32;
-    let max_width = if ctx.config.bottom_text.max_width > 0.0 {
-        (ctx.config.bottom_text.max_width * ctx.width as f64) as i32
-    } else {
-        ctx.width as i32 - base_x
-    };
-    let lines = if ctx.config.bottom_text.wrap {
-        wrap_text(&text, max_width, ctx.bottom_fonts, font_size)
-    } else {
-        text.lines().map(str::to_owned).collect()
-    };
-    let line_height = font_size + 5;
-    let first_line_y = base_y - (lines.len() as i32 - 1) * line_height;
-
-    for (line_index, line) in lines.iter().enumerate() {
-        let line_y = first_line_y + line_index as i32 * line_height;
-        let line_width = measure_text_width(line, ctx.bottom_fonts);
-        let start_x = match ctx.config.bottom_text.align {
-            crate::json_config::TextAlign::Left => base_x,
-            crate::json_config::TextAlign::Center => base_x + (max_width - line_width) / 2,
-            crate::json_config::TextAlign::Right => base_x + max_width - line_width,
-        };
-
-        let mut character_x = start_x;
-        for character in line.chars() {
-            let font = ctx
-                .bottom_fonts
-                .iter()
-                .find(|font| font.has_char(character))
-                .or_else(|| ctx.bottom_fonts.last())
-                .context("Bottom text is enabled without a loaded font")?;
-            let character_width = font.glyph_width(character) as i32;
-            let character_y = line_y - font.metrics().0 as i32;
-            let handled_advanced = font.render_advanced_to_image(
-                character,
-                image,
-                character_x,
-                character_y,
-                (
-                    bottom_color.r,
-                    bottom_color.g,
-                    bottom_color.b,
-                    bottom_color.a,
-                ),
-            )?;
-            if !handled_advanced {
-                font.render_to_image(character, image, character_x, character_y, blended);
+    for segment in segments {
+        match segment {
+            GlyphSequenceSegment::Unicode { text, font_index } => {
+                let font_size = font_index
+                    .and_then(|index| fonts.get(index).or(fonts.last()))
+                    .map(|font| font.render_size())
+                    .unwrap_or(default_font_size);
+                let request = CenteredUnicodeRequest {
+                    component_id: &component.id,
+                    config: &component.font,
+                    font_size,
+                    text: &text,
+                    font_index,
+                    color: state.color.clone(),
+                    center,
+                };
+                if let Some(layout) = typography.prepare_centered_unicode_sequence(&request)? {
+                    prepared.push(PreparedMixedSegment::Unicode(Box::new(layout)));
+                }
             }
-            character_x += character_width;
+            GlyphSequenceSegment::Exact(spec) => {
+                let Some(resolved) = resolve_glyph_spec(spec, fonts) else {
+                    continue;
+                };
+                let mut exact = prepare_explicit_glyphs(
+                    std::slice::from_ref(&resolved),
+                    fonts,
+                    &component.font,
+                    typography,
+                )?;
+                if let Some(glyph) = exact.pop() {
+                    prepared.push(PreparedMixedSegment::Exact(glyph));
+                }
+            }
+        }
+    }
+
+    let total_width: f32 = prepared.iter().map(PreparedMixedSegment::width).sum();
+    let mut cursor_x = center.0 - total_width / 2.0;
+    for segment in &prepared {
+        match segment {
+            PreparedMixedSegment::Unicode(layout) => {
+                let width = layout.width();
+                typography.render_prepared_unicode_sequence(
+                    layout.as_ref(),
+                    (cursor_x + width / 2.0, center.1),
+                    image,
+                )?;
+                cursor_x += width;
+            }
+            PreparedMixedSegment::Exact(glyph) => {
+                let anchor_x = cursor_x + glyph.metrics.advance / 2.0;
+                let (origin_x, origin_y) = typographic_glyph_origin(
+                    (anchor_x.round() as i32, center.1.round() as i32),
+                    glyph.metrics.advance,
+                    glyph.metrics.outline_center_x,
+                    glyph.metrics.ascent,
+                    glyph.metrics.descent,
+                );
+                render_resolved_glyphs(
+                    PreparedGlyphRenderRequest {
+                        glyphs: std::slice::from_ref(glyph),
+                        font_config: &component.font,
+                        color: &state.color,
+                        background_color: ctx.background_color,
+                        origin: (origin_x, origin_y),
+                    },
+                    typography,
+                    image,
+                )?;
+                cursor_x += glyph.metrics.advance;
+            }
         }
     }
     Ok(())
 }
 
-fn render_frame_parallel(ctx: &FrameRenderCtx) -> Result<Vec<u8>> {
-    let codepoint = ctx.entry.code_point_value();
-    let character = char::from_u32(codepoint).unwrap_or('\u{FFFD}');
+fn render_glyph_component(
+    ctx: &FrameRenderCtx<'_>,
+    component: &crate::scene::GlyphComponent,
+    state: &ComponentFrameState,
+    fonts: &[Arc<FontLoader>],
+    typography: &mut TypographyRenderer,
+    image: &mut RgbaImage,
+) -> Result<()> {
+    let expression = resolve_component_content(ctx, &component.content)?;
+    let parsed_specs = CharEntry::glyph_specs_from(&expression);
+    let standalone_combining_overlay = ctx.config.overlay_enabled
+        && component.overlay_combining_mark
+        && parsed_specs.len() == 1
+        && parsed_specs
+            .first()
+            .is_some_and(|spec| match spec.selector {
+                GlyphSelector::CodePoint(value) => ctx.unicode_manager.is_combining_mark(value),
+                GlyphSelector::Name(_) | GlyphSelector::Index(_) => false,
+            });
+    if !standalone_combining_overlay {
+        if let Some(text) = unicode_shaping_sequence(&parsed_specs) {
+            let center_x =
+                (state.position.x * ctx.width as f64) as f32 + ctx.config.text_x_offset as f32;
+            let center_y =
+                (state.position.y * ctx.height as f64) as f32 + ctx.config.text_y_offset as f32;
+            let font_size = fonts
+                .first()
+                .map(|font| font.render_size())
+                .unwrap_or(component.font.size);
+            return typography.render_centered_unicode_sequence(
+                CenteredUnicodeRequest {
+                    component_id: &component.id,
+                    config: &component.font,
+                    font_size,
+                    text: &text,
+                    font_index: None,
+                    color: state.color.clone(),
+                    center: (center_x, center_y),
+                },
+                image,
+            );
+        }
+
+        let segments = glyph_sequence_segments(&parsed_specs);
+        let has_unicode = segments
+            .iter()
+            .any(|segment| matches!(segment, GlyphSequenceSegment::Unicode { .. }));
+        if has_unicode {
+            return render_mixed_glyph_segments(
+                ctx,
+                component,
+                state,
+                fonts,
+                &parsed_specs,
+                typography,
+                image,
+            );
+        }
+    }
+
+    let glyphs = resolve_glyphs(&expression, fonts);
+    if glyphs.is_empty() {
+        return Ok(());
+    }
+
+    let prepared = prepare_explicit_glyphs(&glyphs, fonts, &component.font, typography)?;
+    let primary = prepared
+        .first()
+        .context("Glyph component is enabled without a loaded font")?;
+    let anchor_x = (state.position.x * ctx.width as f64) as i32;
+    let anchor_y = (state.position.y * ctx.height as f64) as i32;
+    let glyph_advance: f32 = prepared.iter().map(|glyph| glyph.metrics.advance).sum();
+    let outline_center_x = (glyph_advance.abs() <= f32::EPSILON)
+        .then_some(primary.metrics.outline_center_x)
+        .flatten();
+    let (origin_x, origin_y) = typographic_glyph_origin(
+        (
+            anchor_x + ctx.config.text_x_offset,
+            anchor_y + ctx.config.text_y_offset,
+        ),
+        glyph_advance,
+        outline_center_x,
+        primary.metrics.ascent,
+        primary.metrics.descent,
+    );
+
+    let overlay_codepoint = if component.overlay_combining_mark {
+        CharEntry::glyph_specs_from(&expression)
+            .into_iter()
+            .find_map(|spec| match spec.selector {
+                GlyphSelector::CodePoint(value) => Some(value),
+                GlyphSelector::Name(_) | GlyphSelector::Index(_) => None,
+            })
+    } else {
+        None
+    };
+    if let Some(codepoint) = overlay_codepoint {
+        let dotted_circle = GlyphSelector::CodePoint(0x25CC);
+        if let Some(overlay_font) = fonts.iter().find(|font| font.has_selector(&dotted_circle)) {
+            render_combining_overlay(
+                CombiningOverlayRequest {
+                    ctx,
+                    state,
+                    font: overlay_font,
+                    font_config: &component.font,
+                    codepoint,
+                    anchor: (
+                        anchor_x + ctx.config.text_x_offset,
+                        anchor_y + ctx.config.text_y_offset,
+                    ),
+                },
+                typography,
+                image,
+            )?;
+        }
+    }
+
+    render_resolved_glyphs(
+        PreparedGlyphRenderRequest {
+            glyphs: &prepared,
+            font_config: &component.font,
+            color: &state.color,
+            background_color: ctx.background_color,
+            origin: (origin_x, origin_y),
+        },
+        typography,
+        image,
+    )
+}
+
+fn render_text_component(
+    ctx: &FrameRenderCtx<'_>,
+    component: &crate::scene::TextComponent,
+    state: &ComponentFrameState,
+    typography: &mut TypographyRenderer,
+    image: &mut RgbaImage,
+) -> Result<()> {
+    let text = resolve_component_content(ctx, &component.content)?;
+    typography.render_text(
+        component,
+        &text,
+        state.color.clone(),
+        TextPlacement {
+            origin_x: (state.position.x * ctx.width as f64) as f32,
+            last_baseline_y: (state.position.y * ctx.height as f64) as f32,
+            canvas_width: ctx.width,
+        },
+        image,
+    )
+}
+
+fn render_frame_parallel(
+    ctx: &FrameRenderCtx<'_>,
+    typography: &mut TypographyRenderer,
+) -> Result<Vec<u8>> {
     let mut image = RgbaImage::new(ctx.width, ctx.height);
     fill_frame_background(&mut image, ctx.background_color);
 
-    if ctx.config.main_text.enabled {
-        let primary_font = ctx
-            .main_font_index
-            .and_then(|index| ctx.main_fonts.get(index))
-            .or_else(|| ctx.main_fonts.first())
-            .context("Main text is enabled without a loaded font")?;
-        let anchor_x = (ctx.main_position.x * ctx.width as f64) as i32;
-        let anchor_y = (ctx.main_position.y * ctx.height as f64) as i32;
-        let glyph_advance: f32 = ctx
-            .main_glyphs
-            .iter()
-            .map(|glyph| {
-                let font = ctx
-                    .main_fonts
-                    .get(glyph.font_index)
-                    .or_else(|| ctx.main_fonts.last())
-                    .unwrap_or(primary_font);
-                font.glyph_width_id(font.glyph_id_for_selector(&glyph.selector))
-            })
-            .sum();
-        let outline_center_x = if glyph_advance.abs() <= f32::EPSILON {
-            let glyph = primary_font.font().glyph_id(character);
-            let scaled = glyph.with_scale_and_position(
-                primary_font.px_scale(),
-                ab_glyph::Point { x: 0.0, y: 0.0 },
-            );
-            primary_font.font().outline_glyph(scaled).map(|outline| {
-                let bounds = outline.px_bounds();
-                (bounds.min.x + bounds.max.x) / 2.0
-            })
-        } else {
-            None
-        };
-        let (ascent, descent) = primary_font.metrics();
-        let (origin_x, origin_y) = typographic_glyph_origin(
-            (
-                anchor_x + ctx.config.text_x_offset,
-                anchor_y + ctx.config.text_y_offset,
-            ),
-            glyph_advance,
-            outline_center_x,
-            ascent,
-            descent,
-        );
+    for component in &ctx.config.components {
+        if !component.enabled() {
+            continue;
+        }
+        let state = ctx
+            .component_states
+            .get(component.id())
+            .context("Missing component frame state")?;
+        let fonts = ctx
+            .component_fonts
+            .get(component.id())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
 
-        render_combining_overlay(ctx, primary_font, codepoint, anchor_x, anchor_y, &mut image);
-        render_main_glyphs(ctx, &mut image, origin_x, origin_y)?;
+        match component {
+            SceneComponent::Glyph(glyph) => {
+                render_glyph_component(ctx, glyph, state, fonts, typography, &mut image)?;
+            }
+            SceneComponent::Text(text) => {
+                render_text_component(ctx, text, state, typography, &mut image)?;
+            }
+        }
     }
-    render_bottom_information(ctx, &mut image)?;
+
     Ok(image.into_raw())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        add_rawvideo_input_args, add_stream_mapping_args, concat_file_entry, format_text_template,
-        initial_render_state, next_frame_job, render_frame_png, typographic_glyph_origin,
+        add_rawvideo_input_args, add_stream_mapping_args, concat_file_entry,
+        glyph_sequence_segments, initial_render_state, next_frame_job, render_frame_png,
+        typographic_glyph_origin, unicode_shaping_sequence, validate_render_config,
+        GlyphSequenceSegment,
     };
-    use crate::json_config::{CharEntry, Color, Event, EventType, Position, RenderConfig};
+    use crate::json_config::{CharEntry, Event, EventType, GlyphSpec, RenderConfig};
+    use crate::scene::{Color, GlyphSelector, Position};
     use std::path::Path;
     use std::process::Command;
+
+    #[test]
+    fn unicode_sequence_is_kept_together_for_shaping() {
+        let specs = vec![
+            GlyphSpec {
+                selector: GlyphSelector::CodePoint('f' as u32),
+                font_index: None,
+            },
+            GlyphSpec {
+                selector: GlyphSelector::CodePoint('f' as u32),
+                font_index: None,
+            },
+            GlyphSpec {
+                selector: GlyphSelector::CodePoint('i' as u32),
+                font_index: None,
+            },
+        ];
+        assert_eq!(unicode_shaping_sequence(&specs).as_deref(), Some("ffi"));
+    }
+
+    #[test]
+    fn single_unicode_selector_still_uses_shaping() {
+        let specs = vec![GlyphSpec {
+            selector: GlyphSelector::CodePoint('A' as u32),
+            font_index: None,
+        }];
+        assert_eq!(unicode_shaping_sequence(&specs).as_deref(), Some("A"));
+    }
+
+    #[test]
+    fn mixed_selector_expression_keeps_unicode_runs_shapeable() {
+        let specs = CharEntry::glyph_specs_from("#83/zeroU+30");
+        assert_eq!(specs.len(), 3);
+        assert_eq!(
+            glyph_sequence_segments(&specs),
+            vec![
+                GlyphSequenceSegment::Exact(specs[0].clone()),
+                GlyphSequenceSegment::Exact(specs[1].clone()),
+                GlyphSequenceSegment::Unicode {
+                    text: "0".to_string(),
+                    font_index: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn adjacent_unicode_after_exact_selector_stays_one_shaping_run() {
+        let specs = vec![
+            GlyphSpec {
+                selector: GlyphSelector::CodePoint('A' as u32),
+                font_index: None,
+            },
+            GlyphSpec {
+                selector: GlyphSelector::Index(3),
+                font_index: None,
+            },
+            GlyphSpec {
+                selector: GlyphSelector::CodePoint('B' as u32),
+                font_index: None,
+            },
+            GlyphSpec {
+                selector: GlyphSelector::CodePoint('C' as u32),
+                font_index: None,
+            },
+        ];
+        assert_eq!(
+            glyph_sequence_segments(&specs),
+            vec![
+                GlyphSequenceSegment::Unicode {
+                    text: "A".to_string(),
+                    font_index: None,
+                },
+                GlyphSequenceSegment::Exact(specs[1].clone()),
+                GlyphSequenceSegment::Unicode {
+                    text: "BC".to_string(),
+                    font_index: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn explicit_glyph_selectors_bypass_unicode_shaping() {
+        let explicit = vec![
+            GlyphSpec {
+                selector: GlyphSelector::CodePoint('A' as u32),
+                font_index: None,
+            },
+            GlyphSpec {
+                selector: GlyphSelector::Index(3),
+                font_index: None,
+            },
+        ];
+        assert!(unicode_shaping_sequence(&explicit).is_none());
+    }
+
+    #[test]
+    fn adjacent_unicode_with_same_font_index_stays_one_shaping_run() {
+        let specs = CharEntry::glyph_specs_from("U+41{2}U+30A{2}");
+        assert_eq!(
+            glyph_sequence_segments(&specs),
+            vec![GlyphSequenceSegment::Unicode {
+                text: "A\u{030A}".to_string(),
+                font_index: Some(2),
+            }]
+        );
+    }
+
+    #[test]
+    fn pinned_emoji_modifier_sequence_stays_one_shaping_run() {
+        let specs = CharEntry::glyph_specs_from("U+1F44D{3}U+1F3FD{3}");
+        assert_eq!(
+            glyph_sequence_segments(&specs),
+            vec![GlyphSequenceSegment::Unicode {
+                text: "👍🏽".to_string(),
+                font_index: Some(3),
+            }]
+        );
+    }
+
+    #[test]
+    fn changing_font_index_breaks_unicode_shaping_runs() {
+        let specs = CharEntry::glyph_specs_from("U+41{1}U+42{2}U+43{2}");
+        assert_eq!(
+            glyph_sequence_segments(&specs),
+            vec![
+                GlyphSequenceSegment::Unicode {
+                    text: "A".to_string(),
+                    font_index: Some(1),
+                },
+                GlyphSequenceSegment::Unicode {
+                    text: "BC".to_string(),
+                    font_index: Some(2),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_axis_tag_is_reported_as_component_configuration_error() {
+        let mut config = RenderConfig::default();
+        let font = config.components[0].font_mut().unwrap();
+        font.font_variation_settings.insert("Italic".into(), 20.0);
+        let error = validate_render_config(&config, false).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("Invalid font settings for component"));
+        assert!(message.contains("variable-font axis"));
+        assert!(message.contains("Italic"));
+    }
 
     #[test]
     fn ffmpeg_stream_maps_follow_all_inputs() {
@@ -2129,8 +2549,12 @@ mod tests {
             ..Default::default()
         };
 
-        config.main_text.enabled = false;
-        config.bottom_text.enabled = false;
+        for component in &mut config.components {
+            match component {
+                crate::scene::SceneComponent::Glyph(component) => component.enabled = false,
+                crate::scene::SceneComponent::Text(component) => component.enabled = false,
+            }
+        }
 
         let mut state = initial_render_state(&config);
         let mut color_index = 0;
@@ -2141,7 +2565,6 @@ mod tests {
 
         while let Some(job) = next_frame_job(
             &config,
-            &[],
             &mut state,
             &mut color_index,
             &mut entry_index,
@@ -2156,10 +2579,18 @@ mod tests {
     }
 
     #[test]
-    fn character_overrides_and_bottom_events_are_resolved_per_frame() {
+    fn character_overrides_and_component_events_are_resolved_per_frame() {
         let mut config = RenderConfig::default();
-        config.main_text.enabled = false;
-        config.bottom_text.enabled = false;
+        let primary_id = config
+            .primary_glyph_component()
+            .expect("default scene has a glyph component")
+            .id
+            .clone();
+        let bottom_id = config
+            .primary_text_component()
+            .expect("default scene has a text component")
+            .id
+            .clone();
         config.characters = vec![CharEntry {
             code_point: "U+0041".to_string(),
             description: String::new(),
@@ -2176,8 +2607,8 @@ mod tests {
         config.events = vec![
             Event {
                 frame: 0,
-                event_type: EventType::SetTextColor {
-                    element_id: config.bottom_text.id.clone(),
+                event_type: EventType::SetComponentColor {
+                    element_id: bottom_id.clone(),
                     color: Color {
                         r: 5,
                         g: 6,
@@ -2188,8 +2619,8 @@ mod tests {
             },
             Event {
                 frame: 0,
-                event_type: EventType::SetTextPosition {
-                    element_id: config.bottom_text.id.clone(),
+                event_type: EventType::SetComponentPosition {
+                    element_id: bottom_id.clone(),
                     position: Position { x: 0.7, y: 0.8 },
                 },
             },
@@ -2202,7 +2633,6 @@ mod tests {
         let mut frame_index = 0;
         let job = next_frame_job(
             &config,
-            &[],
             &mut state,
             &mut color_index,
             &mut entry_index,
@@ -2211,27 +2641,12 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(job.main_text_color.r, 1);
-        assert_eq!(job.main_position.x, 0.2);
-        assert_eq!(job.bottom_text_color.r, 5);
-        assert_eq!(job.bottom_position.x, 0.7);
-    }
-
-    #[test]
-    fn text_template_resolves_character_code_and_description() {
-        let entry = CharEntry {
-            code_point: "U+0041".to_string(),
-            description: "LATIN CAPITAL LETTER A".to_string(),
-            background_color: None,
-            text_color: None,
-            position: None,
-            duration_frames: None,
-        };
-
-        assert_eq!(
-            format_text_template("{char} | {code} | {description}", &entry),
-            "A | U+0041 | LATIN CAPITAL LETTER A"
-        );
+        let primary = job.component_states.get(&primary_id).unwrap();
+        let bottom = job.component_states.get(&bottom_id).unwrap();
+        assert_eq!(primary.color.r, 1);
+        assert_eq!(primary.position.x, 0.2);
+        assert_eq!(bottom.color.r, 5);
+        assert_eq!(bottom.position.x, 0.7);
     }
 
     #[test]
@@ -2249,10 +2664,18 @@ mod tests {
             ..Default::default()
         };
 
-        config.main_text.enabled = false;
-        config.main_text.fonts.clear();
-        config.bottom_text.enabled = false;
-        config.bottom_text.fonts.clear();
+        for component in &mut config.components {
+            match component {
+                crate::scene::SceneComponent::Glyph(component) => {
+                    component.enabled = false;
+                    component.fonts.clear();
+                }
+                crate::scene::SceneComponent::Text(component) => {
+                    component.enabled = false;
+                    component.fonts.clear();
+                }
+            }
+        }
 
         assert!(!render_frame_png(&config, 0, 8).unwrap().is_empty());
     }

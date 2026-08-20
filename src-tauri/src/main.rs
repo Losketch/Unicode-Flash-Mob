@@ -1,3 +1,4 @@
+mod content_template;
 mod downloader;
 mod extractor;
 mod ffmpeg;
@@ -6,12 +7,15 @@ mod font_loader;
 mod gui;
 mod json_config;
 mod renderer;
+mod scene;
+mod typography_renderer;
 mod unicode_data;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(
@@ -238,31 +242,48 @@ fn cmd_font_preview(
     variations: Vec<String>,
     optical_sizing: bool,
 ) -> Result<()> {
-    let config = json_config::FontConfig {
+    let config = scene::FontConfig {
         size,
         font_feature_settings: parse_settings(&features, "feature")?,
         font_variation_settings: parse_settings(&variations, "variation")?,
         font_optical_sizing: optical_sizing,
     };
-    let loader = font_loader::FontLoader::from_path_with_config(&font, &config)?;
+    let loader = Arc::new(font_loader::FontLoader::from_path_with_config(
+        &font, &config,
+    )?);
     let mut image = image::RgbaImage::from_pixel(1024, 512, image::Rgba([255, 255, 255, 255]));
-    let (ascent, descent) = loader.metrics();
-    let baseline = 256 + ((ascent + descent) / 2.0).round() as i32;
-    let mut characters = text.chars();
-    let first_character = characters.next();
-    let single_character = first_character.filter(|_| characters.next().is_none());
-    let rendered = if let Some(character) = single_character {
-        loader.render_advanced_to_image(character, &mut image, 48, baseline, (0, 0, 0, 255))?
-    } else {
-        loader.render_advanced_text_to_image(&text, &mut image, 48, baseline, (0, 0, 0, 255))?
+    let component_id = "__font_preview".to_string();
+    let mut component_fonts = HashMap::new();
+    component_fonts.insert(component_id.clone(), vec![loader]);
+    let mut typography = typography_renderer::TypographyRenderer::new(&component_fonts)?;
+    let component = scene::TextComponent {
+        id: component_id,
+        enabled: true,
+        content: text.clone(),
+        position: scene::Position { x: 0.0, y: 0.0 },
+        color: scene::Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+        fonts: vec![font],
+        font: config,
+        align: scene::TextAlign::Left,
+        wrap: false,
+        max_width: 0.0,
     };
-    if !rendered {
-        let mut x = 48;
-        for c in text.chars() {
-            loader.render_to_image(c, &mut image, x, baseline, (0, 0, 0));
-            x += loader.glyph_width(c).round() as i32;
-        }
-    }
+    typography.render_text(
+        &component,
+        &text,
+        component.color.clone(),
+        typography_renderer::TextPlacement {
+            origin_x: 48.0,
+            last_baseline_y: 256.0,
+            canvas_width: image.width(),
+        },
+        &mut image,
+    )?;
     image
         .save(&output)
         .with_context(|| format!("Failed to save font preview: {}", output.display()))?;

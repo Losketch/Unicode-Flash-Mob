@@ -1,3 +1,8 @@
+use crate::content_template::ContentTemplate;
+use crate::scene::{
+    Color, FontConfig, GlyphComponent, GlyphSelector, Position, SceneComponent, TextAlign,
+    TextComponent,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -128,6 +133,29 @@ pub(crate) fn bundled_font_paths(relative: impl AsRef<Path>) -> Vec<PathBuf> {
         .collect()
 }
 
+fn default_glyph_component() -> GlyphComponent {
+    GlyphComponent {
+        fonts: bundled_font_paths("fonts/NotoSansTest-Regular.ttf"),
+        ..GlyphComponent::default()
+    }
+}
+
+fn default_text_component() -> TextComponent {
+    let fonts = bundled_font_paths("fonts/IBMPlexSans-Bold.ttf");
+    TextComponent {
+        enabled: !fonts.is_empty(),
+        fonts,
+        ..TextComponent::default()
+    }
+}
+
+fn default_scene_components() -> Vec<SceneComponent> {
+    vec![
+        SceneComponent::Glyph(default_glyph_component()),
+        SceneComponent::Text(default_text_component()),
+    ]
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnimationCurve {
@@ -172,87 +200,13 @@ impl AnimationCurve {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl Default for Color {
-    fn default() -> Self {
-        Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        }
-    }
-}
-
-impl From<Color> for (u8, u8, u8, u8) {
-    fn from(c: Color) -> Self {
-        (c.r, c.g, c.b, c.a)
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum TextAlign {
-    #[default]
-    Left,
-    Center,
-    Right,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct Position {
-    pub x: f64,
-    pub y: f64,
-}
-
-impl Default for Position {
-    fn default() -> Self {
-        Position { x: 0.5, y: 0.5 }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct FontConfig {
-    pub size: f32,
-    /// OpenType feature tags, for example { "kern": 0, "liga": 1 }.
-    #[serde(default)]
-    pub font_feature_settings: BTreeMap<String, u32>,
-    /// Variable-font axis coordinates, for example { "wght": 650, "wdth": 90 }.
-    #[serde(default)]
-    pub font_variation_settings: BTreeMap<String, f32>,
-    /// Let the renderer set the `opsz` axis from the configured font size.
-    #[serde(default = "default_true")]
-    pub font_optical_sizing: bool,
-}
-
-impl Default for FontConfig {
-    fn default() -> Self {
-        FontConfig {
-            size: 512.0,
-            font_feature_settings: BTreeMap::new(),
-            font_variation_settings: BTreeMap::new(),
-            font_optical_sizing: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct TextElement {
+pub(crate) struct LegacyTextElement {
     pub id: String,
     pub fonts: Vec<PathBuf>,
     pub content: String,
     pub position: Position,
     pub color: Color,
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::scene::default_true")]
     pub enabled: bool,
     #[serde(default)]
     pub align: TextAlign,
@@ -262,47 +216,24 @@ pub struct TextElement {
     pub max_width: f64,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-impl Default for TextElement {
-    fn default() -> Self {
-        let fonts = bundled_font_paths("fonts/NotoSansTest-Regular.ttf");
-        TextElement {
-            id: "main".to_string(),
-            fonts,
-            content: "{char}".to_string(),
-            position: Position::default(),
-            color: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 128,
-            },
-            enabled: true,
-            align: TextAlign::Left,
-            wrap: false,
-            max_width: 0.0,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     SetBackgroundColor {
         color: Color,
     },
-    SetTextColor {
+    #[serde(rename = "set_component_color", alias = "set_text_color")]
+    SetComponentColor {
         element_id: String,
         color: Color,
     },
-    SetTextPosition {
+    #[serde(rename = "set_component_position", alias = "set_text_position")]
+    SetComponentPosition {
         element_id: String,
         position: Position,
     },
-    MoveTextPosition {
+    #[serde(rename = "move_component_position", alias = "move_text_position")]
+    MoveComponentPosition {
         element_id: String,
         start_position: Position,
         end_position: Position,
@@ -343,17 +274,6 @@ pub struct CharEntry {
     pub text_color: Option<Color>,
     pub position: Option<Position>,
     pub duration_frames: Option<u64>,
-}
-
-/// A glyph selector used by `characters[].code_point`.
-///
-/// Selectors may be concatenated (for example `U+0033U+0034`) and can carry
-/// an optional zero-based main-font index (`U+0033{1}`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum GlyphSelector {
-    CodePoint(u32),
-    Name(String),
-    Index(u16),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -402,6 +322,44 @@ fn parse_codepoint_spec(
         selector: GlyphSelector::CodePoint(codepoint),
         font_index,
     })
+}
+
+fn is_selector_separator(byte: u8) -> bool {
+    byte == b',' || byte.is_ascii_whitespace()
+}
+
+/// Legacy selectors may be written as bare hexadecimal (for example `45`).
+/// Accept that form only as a complete selector token so ordinary text such
+/// as `not-a-selector` is not partially interpreted as unrelated code points.
+fn is_bare_hex_token(input: &[u8], cursor: usize) -> bool {
+    if cursor > 0 && !is_selector_separator(input[cursor - 1]) {
+        return false;
+    }
+
+    let mut end = cursor;
+    while end < input.len() && input[end].is_ascii_hexdigit() {
+        end += 1;
+    }
+
+    if end < input.len() && input[end] == b'{' {
+        let index_start = end + 1;
+        let mut index_end = index_start;
+        while index_end < input.len() && input[index_end].is_ascii_digit() {
+            index_end += 1;
+        }
+        if index_end == index_start || input.get(index_end) != Some(&b'}') {
+            return false;
+        }
+        end = index_end + 1;
+    }
+
+    end == input.len()
+        || input
+            .get(end)
+            .is_some_and(|byte| is_selector_separator(*byte) || *byte == b'/' || *byte == b'#')
+        || ["U+", "u+", "0x", "0X"]
+            .into_iter()
+            .any(|prefix| input[end..].starts_with(prefix.as_bytes()))
 }
 
 fn parse_glyph_specs(value: &str) -> Vec<GlyphSpec> {
@@ -464,8 +422,9 @@ fn parse_glyph_specs(value: &str) -> Vec<GlyphSpec> {
                     continue;
                 }
             }
-        } else if bytes[cursor].is_ascii_hexdigit() {
-            // Keep accepting the legacy plain hexadecimal form.
+        } else if bytes[cursor].is_ascii_hexdigit() && is_bare_hex_token(bytes, cursor) {
+            // Keep accepting the legacy plain hexadecimal form, but only as a
+            // delimited token rather than hexadecimal-looking fragments of text.
             if let Some(spec) = parse_codepoint_spec(value, bytes, &mut cursor, 0) {
                 specs.push(spec);
                 continue;
@@ -479,6 +438,18 @@ fn parse_glyph_specs(value: &str) -> Vec<GlyphSpec> {
 }
 
 impl CharEntry {
+    pub fn glyph_specs_from(value: &str) -> Vec<GlyphSpec> {
+        let specs = parse_glyph_specs(value.trim());
+        if specs.is_empty() {
+            vec![GlyphSpec {
+                selector: GlyphSelector::CodePoint(0),
+                font_index: None,
+            }]
+        } else {
+            specs
+        }
+    }
+
     pub fn glyph_specs(&self) -> Vec<GlyphSpec> {
         let specs = parse_glyph_specs(self.code_point.trim());
         if specs.is_empty() {
@@ -488,6 +459,24 @@ impl CharEntry {
             }]
         } else {
             specs
+        }
+    }
+
+    /// Unicode text represented by the current selector expression. Explicit
+    /// glyph-name/index selectors have no Unicode scalar and are omitted.
+    pub fn selected_unicode_text(&self) -> String {
+        let selected: String = parse_glyph_specs(self.code_point.trim())
+            .into_iter()
+            .filter_map(|spec| match spec.selector {
+                GlyphSelector::CodePoint(codepoint) => char::from_u32(codepoint),
+                GlyphSelector::Name(_) | GlyphSelector::Index(_) => None,
+            })
+            .collect();
+
+        if selected.is_empty() {
+            self.code_point.clone()
+        } else {
+            selected
         }
     }
 
@@ -554,9 +543,22 @@ impl Default for FfmpegConfig {
     }
 }
 
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+const LEGACY_SCHEMA_VERSION: u32 = 3;
+
+// Configurations written before schema v4 had no schema_version field. Using
+// v3 as the deserialization default lets us distinguish those files from an
+// intentional v4 scene with an empty `components` array.
+fn default_deserialized_schema_version() -> u32 {
+    LEGACY_SCHEMA_VERSION
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct RenderConfig {
+    #[serde(default = "default_deserialized_schema_version")]
+    pub schema_version: u32,
+
     #[serde(default = "default_output_path")]
     pub output_path: PathBuf,
     pub resolution: (u32, u32),
@@ -566,19 +568,45 @@ pub struct RenderConfig {
     pub background_color: Color,
     pub fixed_background: bool,
 
-    pub main_font: FontConfig,
-    pub bottom_font: FontConfig,
+    /// Ordered scene components. Array order is the paint order.
+    #[serde(default)]
+    pub components: Vec<SceneComponent>,
 
+    /// Named templates available to any component content string.
+    #[serde(default)]
+    pub content_templates: BTreeMap<String, ContentTemplate>,
+
+    // Kept for v3 configuration loading only. `normalize_scene` consumes these
+    // fields and new configurations never serialize them.
+    #[serde(default, rename = "main_font", skip_serializing_if = "Option::is_none")]
+    pub(crate) legacy_main_font: Option<FontConfig>,
+    #[serde(
+        default,
+        rename = "bottom_font",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) legacy_bottom_font: Option<FontConfig>,
+    #[serde(default, rename = "main_text", skip_serializing_if = "Option::is_none")]
+    pub(crate) legacy_main_text: Option<LegacyTextElement>,
+    #[serde(
+        default,
+        rename = "bottom_text",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) legacy_bottom_text: Option<LegacyTextElement>,
+
+    /// Legacy global pixel offsets retained until per-component transforms land.
+    #[serde(default)]
     pub text_x_offset: i32,
+    #[serde(default)]
     pub text_y_offset: i32,
 
+    #[serde(default = "crate::scene::default_true")]
     pub overlay_enabled: bool,
-
-    pub main_text: TextElement,
-    pub bottom_text: TextElement,
 
     pub characters: Vec<CharEntry>,
 
+    #[serde(default)]
     pub events: Vec<Event>,
 
     pub ffmpeg: FfmpegConfig,
@@ -594,11 +622,8 @@ fn default_output_path() -> PathBuf {
 
 impl Default for RenderConfig {
     fn default() -> Self {
-        let main_fonts = bundled_font_paths("fonts/NotoSansTest-Regular.ttf");
-        let bottom_fonts = bundled_font_paths("fonts/IBMPlexSans-Bold.ttf");
-        let bottom_text_enabled = !bottom_fonts.is_empty();
-
         RenderConfig {
+            schema_version: CURRENT_SCHEMA_VERSION,
             output_path: default_output_path(),
             resolution: (1920, 1080),
             fps: 30.0,
@@ -756,49 +781,15 @@ impl Default for RenderConfig {
                 a: 255,
             },
             fixed_background: false,
-            main_font: FontConfig {
-                size: 512.0,
-                ..FontConfig::default()
-            },
-            bottom_font: FontConfig {
-                size: 42.0,
-                ..FontConfig::default()
-            },
+            components: default_scene_components(),
+            content_templates: BTreeMap::new(),
+            legacy_main_font: None,
+            legacy_bottom_font: None,
+            legacy_main_text: None,
+            legacy_bottom_text: None,
             text_x_offset: 0,
             text_y_offset: 0,
             overlay_enabled: true,
-            main_text: TextElement {
-                id: "main".to_string(),
-                fonts: main_fonts,
-                content: "{char}".to_string(),
-                position: Position { x: 0.5, y: 0.5 },
-                color: Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 128,
-                },
-                enabled: true,
-                align: TextAlign::Center,
-                wrap: false,
-                max_width: 0.0,
-            },
-            bottom_text: TextElement {
-                id: "bottom".to_string(),
-                fonts: bottom_fonts,
-                content: "{code}\n{description}".to_string(),
-                position: Position { x: 0.05, y: 0.95 },
-                color: Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 128,
-                },
-                enabled: bottom_text_enabled,
-                align: TextAlign::Left,
-                wrap: true,
-                max_width: 0.9,
-            },
             characters: Vec::new(),
             events: Vec::new(),
             ffmpeg: FfmpegConfig::default(),
@@ -809,14 +800,89 @@ impl Default for RenderConfig {
 }
 
 impl RenderConfig {
-    fn normalize_bundled_asset_references(&mut self) {
-        for font_path in self
-            .main_text
-            .fonts
+    /// Upgrade legacy v3 fixed text slots into the ordered scene-component model.
+    /// Calling this repeatedly is harmless.
+    pub fn normalize_scene(&mut self) {
+        // Never reinterpret or downgrade a configuration written by a newer
+        // schema. Callers that render/save will reject it with a clear error.
+        if self.schema_version > CURRENT_SCHEMA_VERSION {
+            return;
+        }
+
+        let has_legacy_slots = self.legacy_main_font.is_some()
+            || self.legacy_bottom_font.is_some()
+            || self.legacy_main_text.is_some()
+            || self.legacy_bottom_text.is_some();
+        let should_migrate_legacy =
+            self.schema_version < CURRENT_SCHEMA_VERSION || has_legacy_slots;
+
+        if should_migrate_legacy && self.components.is_empty() {
+            let mut glyph = default_glyph_component();
+            if let Some(legacy) = self.legacy_main_text.take() {
+                glyph.id = legacy.id;
+                glyph.enabled = legacy.enabled;
+                glyph.position = legacy.position;
+                glyph.color = legacy.color;
+                glyph.fonts = legacy.fonts;
+            }
+            if let Some(font) = self.legacy_main_font.take() {
+                glyph.font = font;
+            }
+
+            let mut text = default_text_component();
+            if let Some(legacy) = self.legacy_bottom_text.take() {
+                text.id = legacy.id;
+                text.enabled = legacy.enabled;
+                text.content = legacy.content;
+                text.position = legacy.position;
+                text.color = legacy.color;
+                text.fonts = legacy.fonts;
+                text.align = legacy.align;
+                text.wrap = legacy.wrap;
+                text.max_width = legacy.max_width;
+            }
+            if let Some(font) = self.legacy_bottom_font.take() {
+                text.font = font;
+            }
+
+            self.components.push(SceneComponent::Glyph(glyph));
+            self.components.push(SceneComponent::Text(text));
+        }
+
+        self.legacy_main_font = None;
+        self.legacy_bottom_font = None;
+        self.legacy_main_text = None;
+        self.legacy_bottom_text = None;
+        self.schema_version = CURRENT_SCHEMA_VERSION;
+    }
+
+    pub fn primary_glyph_component(&self) -> Option<&GlyphComponent> {
+        self.components.iter().find_map(SceneComponent::as_glyph)
+    }
+
+    pub fn primary_glyph_component_mut(&mut self) -> Option<&mut GlyphComponent> {
+        self.components
             .iter_mut()
-            .chain(self.bottom_text.fonts.iter_mut())
-        {
-            *font_path = portable_asset_reference(font_path);
+            .find_map(SceneComponent::as_glyph_mut)
+    }
+
+    pub fn primary_text_component(&self) -> Option<&TextComponent> {
+        self.components.iter().find_map(SceneComponent::as_text)
+    }
+
+    pub fn primary_text_component_mut(&mut self) -> Option<&mut TextComponent> {
+        self.components
+            .iter_mut()
+            .find_map(SceneComponent::as_text_mut)
+    }
+
+    fn normalize_bundled_asset_references(&mut self) {
+        for component in &mut self.components {
+            if let Some(fonts) = component.fonts_mut() {
+                for font_path in fonts {
+                    *font_path = portable_asset_reference(font_path);
+                }
+            }
         }
         if let Some(music_path) = self.music_path.as_mut() {
             *music_path = portable_asset_reference(music_path);
@@ -855,12 +921,37 @@ impl RenderConfig {
 
     pub fn from_file(path: &Path) -> Result<Self, serde_json::Error> {
         let content = std::fs::read_to_string(path).map_err(serde_json::Error::io)?;
-        let mut config: Self = serde_json::from_str(&content)?;
+        let value: serde_json::Value = serde_json::from_str(&content)?;
+        let schema_version = value
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(LEGACY_SCHEMA_VERSION as u64);
+        if schema_version > CURRENT_SCHEMA_VERSION as u64 {
+            return Err(serde_json::Error::io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Unsupported configuration schema {schema_version}; this build supports up to {CURRENT_SCHEMA_VERSION}"
+                ),
+            )));
+        }
+
+        let mut config: Self = serde_json::from_value(value)?;
+        config.normalize_scene();
         config.normalize_bundled_asset_references();
         Ok(config)
     }
 
     pub fn to_file(&self, path: &Path) -> Result<(), std::io::Error> {
+        if self.schema_version > CURRENT_SCHEMA_VERSION {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Unsupported configuration schema {}; this build supports up to {}",
+                    self.schema_version, CURRENT_SCHEMA_VERSION
+                ),
+            ));
+        }
+
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -868,6 +959,7 @@ impl RenderConfig {
             std::fs::create_dir_all(parent)?;
         }
         let mut portable_config = self.clone();
+        portable_config.normalize_scene();
         portable_config.normalize_bundled_asset_references();
         let content = serde_json::to_string_pretty(&portable_config)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -877,10 +969,8 @@ impl RenderConfig {
 
 #[cfg(test)]
 mod font_config_tests {
-    use super::{
-        portable_asset_reference, CharEntry, Event, EventType, FontConfig, GlyphSelector,
-        RenderConfig,
-    };
+    use super::{portable_asset_reference, CharEntry, Event, EventType, RenderConfig};
+    use crate::scene::{Color, FontConfig, GlyphSelector, Position, TextAlign};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -905,6 +995,141 @@ mod font_config_tests {
     }
 
     #[test]
+    fn default_config_serializes_scene_schema_without_legacy_slots() {
+        let config = RenderConfig::default();
+        let value = serde_json::to_value(&config).unwrap();
+
+        assert_eq!(
+            value["schema_version"].as_u64(),
+            Some(super::CURRENT_SCHEMA_VERSION as u64)
+        );
+        assert_eq!(value["components"].as_array().map(Vec::len), Some(2));
+        assert_eq!(value["components"][0]["type"].as_str(), Some("glyph"));
+        assert_eq!(value["components"][1]["type"].as_str(), Some("text"));
+        assert!(value.get("main_text").is_none());
+        assert!(value.get("bottom_text").is_none());
+        assert!(value.get("main_font").is_none());
+        assert!(value.get("bottom_font").is_none());
+    }
+
+    #[test]
+    fn future_schema_is_not_downgraded_by_normalization() {
+        let mut config = RenderConfig {
+            schema_version: super::CURRENT_SCHEMA_VERSION + 1,
+            ..RenderConfig::default()
+        };
+        config.normalize_scene();
+        assert_eq!(config.schema_version, super::CURRENT_SCHEMA_VERSION + 1);
+    }
+
+    #[test]
+    fn missing_schema_version_is_treated_as_legacy_v3() {
+        let mut value = serde_json::to_value(RenderConfig::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("schema_version");
+        object.remove("components");
+
+        let mut config: RenderConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(config.schema_version, super::LEGACY_SCHEMA_VERSION);
+        config.normalize_scene();
+
+        assert_eq!(config.schema_version, super::CURRENT_SCHEMA_VERSION);
+        assert_eq!(config.components.len(), 2);
+    }
+
+    #[test]
+    fn intentional_empty_v4_scene_stays_empty() {
+        let mut config = RenderConfig::default();
+        config.components.clear();
+        config.normalize_scene();
+        assert!(config.components.is_empty());
+    }
+
+    #[test]
+    fn legacy_fixed_slots_migrate_to_ordered_components() {
+        let mut config = RenderConfig {
+            schema_version: super::LEGACY_SCHEMA_VERSION,
+            components: Vec::new(),
+            legacy_main_text: Some(super::LegacyTextElement {
+                id: "legacy-main".to_string(),
+                fonts: vec![PathBuf::from("main.ttf")],
+                content: "ignored-by-v3-main-renderer".to_string(),
+                position: Position { x: 0.25, y: 0.4 },
+                color: Color {
+                    r: 1,
+                    g: 2,
+                    b: 3,
+                    a: 4,
+                },
+                enabled: true,
+                align: TextAlign::Center,
+                wrap: true,
+                max_width: 0.5,
+            }),
+            legacy_main_font: Some(FontConfig {
+                size: 321.0,
+                ..FontConfig::default()
+            }),
+            legacy_bottom_text: Some(super::LegacyTextElement {
+                id: "legacy-bottom".to_string(),
+                fonts: vec![PathBuf::from("bottom.ttf")],
+                content: "{code} :: {description}".to_string(),
+                position: Position { x: 0.1, y: 0.9 },
+                color: Color {
+                    r: 5,
+                    g: 6,
+                    b: 7,
+                    a: 8,
+                },
+                enabled: true,
+                align: TextAlign::Right,
+                wrap: false,
+                max_width: 0.8,
+            }),
+            legacy_bottom_font: Some(FontConfig {
+                size: 37.0,
+                ..FontConfig::default()
+            }),
+            ..RenderConfig::default()
+        };
+
+        config.normalize_scene();
+
+        assert_eq!(config.schema_version, super::CURRENT_SCHEMA_VERSION);
+        assert_eq!(config.components.len(), 2);
+        let glyph = config.primary_glyph_component().unwrap();
+        assert_eq!(glyph.id, "legacy-main");
+        assert_eq!(glyph.content, "{glyph}");
+        assert_eq!(glyph.fonts, vec![PathBuf::from("main.ttf")]);
+        assert_eq!(glyph.font.size, 321.0);
+        let text = config.components[1].as_text().unwrap();
+        assert_eq!(text.id, "legacy-bottom");
+        assert_eq!(text.content, "{code} :: {description}");
+        assert_eq!(text.font.size, 37.0);
+        assert_eq!(text.align, TextAlign::Right);
+    }
+
+    #[test]
+    fn legacy_event_names_deserialize_to_component_events() {
+        let event_type: EventType = serde_json::from_str(
+            r#"{"set_text_position":{"element_id":"caption","position":{"x":0.2,"y":0.3}}}"#,
+        )
+        .unwrap();
+
+        match event_type {
+            EventType::SetComponentPosition {
+                element_id,
+                position,
+            } => {
+                assert_eq!(element_id, "caption");
+                assert_eq!(position.x, 0.2);
+                assert_eq!(position.y, 0.3);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
     fn parses_concatenated_glyph_selectors_and_font_indices() {
         let entry = CharEntry {
             code_point: "U+0033{0}/at{0}#0{1}".to_string(),
@@ -922,6 +1147,31 @@ mod font_config_tests {
         assert_eq!(specs[1].font_index, Some(0));
         assert_eq!(specs[2].selector, GlyphSelector::Index(0));
         assert_eq!(specs[2].font_index, Some(1));
+    }
+
+    #[test]
+    fn selected_unicode_text_ignores_explicit_glyph_selectors() {
+        let entry = CharEntry {
+            code_point: "U+0041/fooU+0042#3".to_string(),
+            description: String::new(),
+            background_color: None,
+            text_color: None,
+            position: None,
+            duration_frames: None,
+        };
+        assert_eq!(entry.selected_unicode_text(), "AB");
+
+        let literal = CharEntry {
+            code_point: "not-a-selector".to_string(),
+            ..entry
+        };
+        assert_eq!(literal.selected_unicode_text(), "not-a-selector");
+
+        let hex_like_literal = CharEntry {
+            code_point: "face-to-face".to_string(),
+            ..literal
+        };
+        assert_eq!(hex_like_literal.selected_unicode_text(), "face-to-face");
     }
 
     #[test]

@@ -28,29 +28,49 @@ export interface FontConfig {
   font_optical_sizing: boolean;
 }
 
-export interface TextElement {
+export interface GlyphComponent {
+  type: "glyph";
   id: string;
-  fonts: string[];
+  enabled: boolean;
   content: string;
   position: Position;
   color: Color;
+  fonts: string[];
+  font: FontConfig;
+  overlay_combining_mark: boolean;
+}
+
+export interface TextComponent {
+  type: "text";
+  id: string;
   enabled: boolean;
+  content: string;
+  position: Position;
+  color: Color;
+  fonts: string[];
+  font: FontConfig;
   align: TextAlign;
   wrap: boolean;
   max_width: number;
 }
 
+export type SceneComponent = GlyphComponent | TextComponent;
+
+export type ContentTemplate =
+  | { type: "text"; value: string }
+  | { type: "external"; executable: string; args: string[] };
+
 export type EventType =
   | { set_background_color: { color: Color } }
-  | { set_text_color: { element_id: string; color: Color } }
+  | { set_component_color: { element_id: string; color: Color } }
   | {
-      set_text_position: {
+      set_component_position: {
         element_id: string;
         position: Position;
       };
     }
   | {
-      move_text_position: {
+      move_component_position: {
         element_id: string;
         start_position: Position;
         end_position: Position;
@@ -94,6 +114,7 @@ export interface FfmpegConfig {
 }
 
 export interface RenderConfig {
+  schema_version: number;
   output_path: string;
   resolution: [number, number];
   fps: number;
@@ -101,13 +122,11 @@ export interface RenderConfig {
   dynamic_background: boolean;
   background_color: Color;
   fixed_background: boolean;
-  main_font: FontConfig;
-  bottom_font: FontConfig;
+  components: SceneComponent[];
+  content_templates: Record<string, ContentTemplate>;
   text_x_offset: number;
   text_y_offset: number;
   overlay_enabled: boolean;
-  main_text: TextElement;
-  bottom_text: TextElement;
   characters: CharEntry[];
   events: Event[];
   ffmpeg: FfmpegConfig;
@@ -130,3 +149,10 @@ type DeepConfigPath<T> = T extends AtomicConfigValue | readonly unknown[]
 
 /** Dot-separated paths accepted by the configuration editor. */
 export type RenderConfigPath = DeepConfigPath<RenderConfig>;
+
+export const getPrimaryGlyphComponent = (
+  config: RenderConfig | null | undefined
+): GlyphComponent | undefined =>
+  config?.components?.find(
+    (component): component is GlyphComponent => component.type === "glyph"
+  );

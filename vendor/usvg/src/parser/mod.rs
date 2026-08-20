@@ -119,6 +119,7 @@ impl crate::Tree {
             text_rendering: opt.text_rendering,
             image_rendering: opt.image_rendering,
             default_size: opt.default_size,
+            forced_size: opt.forced_size,
             image_href_resolver: ImageHrefResolver {
                 resolve_data: Box::new(|a, b, c| (opt.image_href_resolver.resolve_data)(a, b, c)),
                 // External images should be ignored.
@@ -157,9 +158,23 @@ impl crate::Tree {
 
     /// Parses `Tree` from `roxmltree::Document`.
     pub fn from_xmltree(doc: &roxmltree::Document, opt: &Options) -> Result<Self, Error> {
+        let relative_root_size = root_uses_relative_size(doc);
         let doc = svgtree::Document::parse_tree(doc, opt.style_sheet.as_deref())?;
-        self::converter::convert_doc(&doc, opt)
+        self::converter::convert_doc(&doc, opt, relative_root_size)
     }
+}
+
+fn root_uses_relative_size(doc: &roxmltree::Document) -> bool {
+    let root = doc.root_element();
+    let is_relative = |name: &str| match root.attribute(name) {
+        // SVG's initial width/height default to 100%. OpenType-SVG hosts must
+        // therefore provide the em-square viewport when either dimension is
+        // omitted or explicitly authored as a percentage.
+        None => true,
+        Some(value) => value.trim().ends_with('%'),
+    };
+
+    is_relative("width") || is_relative("height")
 }
 
 /// Decompresses an SVGZ file.

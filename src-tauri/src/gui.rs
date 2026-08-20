@@ -53,7 +53,7 @@ pub async fn render_video(
     tokio::task::spawn_blocking(move || {
         renderer::render_video_with_progress(&config, Some(progress_callback))
             .map(|_| "Video rendered successfully".to_string())
-            .map_err(|e| format!("Render failed: {e}"))
+            .map_err(|e| format!("Render failed: {e:#}"))
     })
     .await
     .map_err(|e| format!("Task failed: {e}"))?
@@ -67,7 +67,7 @@ pub async fn render_frame_preview(
 ) -> Result<Vec<u8>, String> {
     tokio::task::spawn_blocking(move || {
         renderer::render_frame_png(&config, entry_index, max_dimension.unwrap_or(960))
-            .map_err(|e| format!("Preview render failed: {e}"))
+            .map_err(|e| format!("Preview render failed: {e:#}"))
     })
     .await
     .map_err(|e| format!("Preview task failed: {e}"))?
