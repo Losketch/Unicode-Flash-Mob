@@ -2,6 +2,7 @@
   "name": "unicode-flash-mob",
   "private": true,
   "version": "3.0.0",
+  "packageManager": "pnpm@11.25.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -20,6 +20,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { RenderConfig } from "../types/config";
 import { normalizeRenderConfig } from "../utils/config";
 import type { DragDropPayload } from "../types/events";
+import { formatError } from "../utils/errors";
 
 const StartPage: React.FC = () => {
   const { t } = useTranslation(["start", "common"]);
@@ -34,7 +35,7 @@ const StartPage: React.FC = () => {
         const config = await invoke<RenderConfig>("load_config", { path });
         navigate("/editor", { state: { config } });
       } catch (error) {
-        enqueueSnackbar(`${t("start:loadFailed")}: ${error}`, {
+        enqueueSnackbar(`${t("start:loadFailed")}: ${formatError(error)}`, {
           variant: "error",
         });
       }

@@ -1,3 +1,4 @@
+mod config_validation;
 mod content_template;
 mod downloader;
 mod extractor;
@@ -5,9 +6,12 @@ mod ffmpeg;
 mod font_loader;
 #[cfg(feature = "gui")]
 mod gui;
+mod image_renderer;
 mod json_config;
+mod primitive_renderer;
 mod renderer;
 mod scene;
+mod scene_transform;
 mod typography_renderer;
 mod unicode_data;
 
@@ -39,6 +43,26 @@ enum Commands {
         /// JSON config file path
         #[arg(short, long, required = true)]
         config: PathBuf,
+    },
+
+    /// Validate a JSON config without rendering it
+    Validate {
+        /// JSON config file path
+        #[arg(short, long, required = true)]
+        config: PathBuf,
+        /// Validate only preview-safe requirements; skip frames/output/FFmpeg/music checks.
+        #[arg(long)]
+        preview: bool,
+    },
+
+    /// Check runtime assets, configuration readiness, and FFmpeg availability
+    Doctor {
+        /// Optional JSON config to validate as part of the runtime check
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Skip render-only checks such as FFmpeg availability
+        #[arg(long)]
+        preview: bool,
     },
 
     /// Render one character entry from a config as a PNG image
@@ -125,6 +149,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Render { config } => cmd_render(config)?,
+        Commands::Validate { config, preview } => cmd_validate(config, preview)?,
+        Commands::Doctor { config, preview } => cmd_doctor(config, preview)?,
         Commands::Frame {
             config,
             entry_index,
@@ -162,6 +188,71 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn cmd_validate(config_path: PathBuf, preview: bool) -> Result<()> {
+    let config = json_config::RenderConfig::from_file(&config_path)
+        .with_context(|| format!("Failed to parse config file: {}", config_path.display()))?;
+    let mode = if preview { "preview" } else { "render" };
+    config_validation::validate_render_config(&config, !preview)
+        .with_context(|| format!("Configuration is not {mode}-ready"))?;
+    if !preview {
+        ffmpeg::check_ffmpeg_runtime(Some(&config.ffmpeg.path))
+            .context("FFmpeg runtime is not render-ready")?;
+    }
+    println!("Configuration is {mode}-ready: {}", config_path.display());
+    Ok(())
+}
+
+fn check_runtime_asset(label: &str, relative: &str) -> Result<()> {
+    let path = json_config::asset_path(relative);
+    if !path.is_file() {
+        anyhow::bail!("Missing required runtime asset {label}: {}", path.display());
+    }
+    println!("[ok] {label}: {}", path.display());
+    Ok(())
+}
+
+fn cmd_doctor(config_path: Option<PathBuf>, preview: bool) -> Result<()> {
+    check_runtime_asset("UnicodeData.txt", "data/UnicodeData.txt")?;
+    check_runtime_asset("UnicodeBlocks.txt", "data/UnicodeBlocks.txt")?;
+    check_runtime_asset("NotoSansTest-Regular.ttf", "fonts/NotoSansTest-Regular.ttf")?;
+    check_runtime_asset("IBMPlexSans-Bold.ttf", "fonts/IBMPlexSans-Bold.ttf")?;
+
+    let config = config_path
+        .as_ref()
+        .map(|path| {
+            json_config::RenderConfig::from_file(path)
+                .with_context(|| format!("Failed to parse config file: {}", path.display()))
+        })
+        .transpose()?;
+
+    if let (Some(config), Some(path)) = (config.as_ref(), config_path.as_ref()) {
+        config_validation::validate_render_config(config, !preview).with_context(|| {
+            format!(
+                "Configuration is not {}-ready",
+                if preview { "preview" } else { "render" }
+            )
+        })?;
+        println!(
+            "[ok] Configuration is {}-ready: {}",
+            if preview { "preview" } else { "render" },
+            path.display()
+        );
+    }
+
+    if !preview {
+        let (ffmpeg_path, version) = ffmpeg::check_ffmpeg_runtime(
+            config.as_ref().map(|config| config.ffmpeg.path.as_path()),
+        )?;
+        println!("[ok] FFmpeg: {} ({version})", ffmpeg_path.display());
+    }
+
+    println!(
+        "Runtime diagnostics passed ({})",
+        if preview { "preview" } else { "render" }
+    );
     Ok(())
 }
 

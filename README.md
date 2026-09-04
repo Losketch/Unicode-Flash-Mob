@@ -71,52 +71,69 @@ cargo tauri build --ci --no-sign -- --locked
 src-tauri/target/release/bundle/
 ```
 
-`--no-sign` 只适合本地验证和普通 CI。正式签名发布时应配置平台签名凭据，并移除该参数：
+当前 Windows/Linux 官方构建采用 **unsigned** 发布策略，并使用 `--no-sign`。Windows 从浏览器下载后可能出现 SmartScreen 警告；这是未签名发布的已知限制。
 
-```bash
-cargo tauri build --ci -- --locked
-```
+macOS 暂不进入官方 artifact 矩阵；具备合适的 Apple 签名/notarization 条件后再恢复公开 macOS 包。
 
 ## CI
 
 GitHub Actions 分为两个阶段：
 
-1. Ubuntu 22.04 上执行前端构建、Rust 格式检查、CLI-only 检查、全部测试和 Clippy。
-2. 质量检查通过后，在 Windows、macOS 和 Ubuntu 22.04 上分别执行真正的 `cargo tauri build`，并上传 `src-tauri/target/release/bundle/**`。
+1. Ubuntu 22.04 上执行前端构建、Rust 格式检查、单一 `--all-features` Cargo gate、全部测试和 Clippy。
+2. 质量检查通过后，在 Windows 和 Ubuntu 22.04 上构建 unsigned Tauri bundle，并上传工作流 artifact。
+3. 推送 `v*-rc*` tag 时，`.github/workflows/release.yml` 用同样的 Windows/Linux unsigned 策略创建 **draft prerelease** 并附加安装包。
+
+不再为了 CLI/GUI 重复维护 `--no-default-features` 与 `--all-features` 两套质量矩阵；当前发行二进制本身同时提供 GUI 和 CLI。
 
 ## CLI
 
-CLI 可以不编译 Tauri GUI 依赖。所有命令均从仓库根目录执行，并显式指定 Rust manifest：
+CLI 与 GUI 使用同一个二进制入口。项目不把 headless feature 组合维护为独立支持矩阵；文档、CI 和 release gate 统一使用 `--all-features`。所有命令均从仓库根目录执行，并显式指定 Rust manifest：
 
 ```bash
-cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked -- --help
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- --help
 ```
 
 常用命令：
 
 ```bash
 # 从字体生成配置
-cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked -- \
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
   extract ./example.ttf --output unicode_config.json
 
 # 根据配置渲染视频
-cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked -- \
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
   render --config unicode_config.json
 
+# 在不渲染的情况下执行完整 render-ready 配置预检
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
+  validate --config unicode_config.json
+
+# 只验证静态预览所需条件（不要求 frames/output/FFmpeg/music）
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
+  validate --config unicode_config.json --preview
+
+# 检查运行时资源、配置与 FFmpeg（适合安装后/干净机器验收）
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
+  doctor --config unicode_config.json
+
+# 只检查内置资源与 preview-ready 配置，不要求 FFmpeg
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
+  doctor --config unicode_config.json --preview
+
 # 渲染单帧预览
-cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked -- \
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
   frame --config unicode_config.json --entry-index 0 --output frame-preview.png
 
 # 生成默认配置
-cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked -- \
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
   config unicode_config.json
 
 # 下载 UnicodeData.txt 与 Blocks.txt；后者在本项目中保存为 UnicodeBlocks.txt
-cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked -- \
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
   download --output src-tauri/assets/data
 
 # 直接验证字体的 OpenType feature 与可变轴
-cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked -- \
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- \
   font-preview --font ./example.ttf --text "ffi" --feature liga=1 --variation wght=650
 ```
 
@@ -124,11 +141,14 @@ cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features 
 
 配置 schema 当前为 `4`。画面不再固定为一个 `main_text` 和一个 `bottom_text`，而是由有序的 `components` 数组组成；数组顺序就是绘制顺序，后面的组件覆盖前面的组件。
 
-目前实现两种基础组件：
+目前实现五种 Scene 组件：
 
 - `glyph`：用于 Unicode 码点、glyph name、glyph index 等字形选择器。Unicode 内容会作为完整 text run shaping；Unicode 后的 `{fontIndex}` 用于固定该 run 的字体而不关闭 shaping，`/glyphName` 与 `#glyphIndex` 才保留 exact-glyph 语义。
 - `text`：用于说明文字、Unicode 元数据和自定义文本。由 Parley/HarfRust 完成 text-run shaping、Bidi、cluster、GSUB/GPOS、换行和字体 fallback，最终字形交给 Swash / usvg-resvg paint backend。
-- Phase 2 的 paint backend 使用局部 4× supersampling：普通 outline、COLR v0、彩色 bitmap 由 Swash 4× raster，COLR v1 / SVG-in-OpenType 由 resvg 4× raster，再以 alpha-aware box downsample 合成到目标帧。连接脚本的单色 glyph coverage 会先在高分辨率网格做 union，再降采样，避免目标分辨率 AA 边缘重复叠加。
+- `image`：用于 PNG/JPEG/WebP 静态图像。`position` 表示图像盒中心，`size.width/height` 为相对画布的归一化尺寸；支持 `contain`、`cover`、`stretch` 与独立 `opacity`。图片在 prepare/preview 阶段加载并按 component id 缓存，不进入 TypographyRenderer。
+- `progress_bar`：用于矩形进度条 primitive。支持归一化 `position`/`size`、`progress`、背景/填充色、四个填充方向，以及可选的内部边框（颜色与正整数像素宽度可配）；不依赖字体或图片资源。启用边框时 `border.width >= 1`，关闭边框使用 `border: null`。
+- `group`：用于递归组合子组件。支持 `translation`、`scale`、`rotation`、`anchor` 与继承式 `opacity`；父子变换按 `World = Parent × Local` 在像素空间组合，identity group 不额外重采样。
+- Typography paint backend 使用局部 4× supersampling：普通 outline、COLR v0、彩色 bitmap 由 Swash 4× raster，COLR v1 / SVG-in-OpenType 由 resvg 4× raster，再以 alpha-aware box downsample 合成到目标帧。连接脚本的单色 glyph coverage 会先在高分辨率网格做 union，再降采样，避免目标分辨率 AA 边缘重复叠加。
 - SVG-in-OpenType 按 OpenType 的 em-square 初始 viewport、y-down/baseline-y=0 语义解析；resvg 负责 selected-node bbox 本地化，caller 只保留目标像素的 subpixel offset，避免对 SVG ink bbox 重复平移和裁切。
 
 每个文字相关组件独立持有 `fonts` 与 `font`，因此可以分别设置字号、fallback、OpenType feature、variation axis 与 optical sizing。例如：
@@ -175,7 +195,9 @@ cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features 
 }
 ```
 
-v3 的 `main_font`、`bottom_font`、`main_text`、`bottom_text` 仍可读取。加载后后端会将它们迁移为默认 `glyph`/`text` 组件；再次保存时写出 v4 结构。高于当前版本的 schema 会被拒绝加载或保存，避免旧版程序把未来组件/字段静默降级并造成数据丢失。
+配置 schema v4 现已冻结为稳定公共 JSON 契约；已公开的 v3 fixed-slot 配置（`main_font`、`bottom_font`、`main_text`、`bottom_text`）仍可读取并迁移为 v4 的默认 `glyph`/`text` scene。`image`、`progress_bar`、`group`、Transform 与 component-property animation 都属于同一套稳定 v4 Scene Component System。从 v4 冻结起，任何破坏既有合法 v4 配置的变更都必须进入新的 schema 版本；高于当前版本的 schema 仍会被拒绝加载或保存，避免旧版程序静默降级未来格式。
+
+`ffmpeg.parallel_workers`、`ffmpeg.max_inflight_frames` 与 `ffmpeg.encoding_processes` 是高级并行参数。默认值分别为自动、`2` 与 `1`。提高这些值会增加渲染并发、RGBA 帧队列或 FFmpeg 进程数量，并可能显著增加 CPU/GPU、内存占用以及硬件编码会话压力；GUI 因此将它们标记为危险区设置。
 
 ## 内容模板项
 
@@ -272,6 +294,10 @@ assets/audio/example.m4a
 
 应用运行时会把这些路径解析到开发目录或安装包的 resource directory，不应将 `src-tauri/target/debug/...`、`src-tauri/target/release/...` 等构建目录写入配置。
 
+除 `assets/...` 外，JSON 中的普通相对字体、图片、音乐、输出路径以及 path-like external template/FFmpeg 路径，均以**配置文件所在目录**为基准解析；保存配置时，位于配置目录内部的绝对路径会尽量重新写为相对路径。`ffmpeg`、`python` 这类只有一个文件名的 bare command 仍按进程 `PATH` 查找。
+
+GUI 创建默认配置时优先把视频输出放在系统 Videos 目录下的 `Unicode Flash Mob` 子目录；如果系统无法提供 Videos 目录，则回退到当前工作目录。应用不会把 Documents 作为隐式回退位置。
+
 注意：从 Finder、桌面菜单或图形化启动器打开的 macOS／Linux GUI 通常不会继承 shell 配置文件中的完整 `PATH`。正式分发时，建议打包经过授权的 FFmpeg，或让用户在配置中选择 FFmpeg 的绝对路径。
 
 仅在许可证允许重新分发时，才能把字体、音乐、Unicode 数据或 FFmpeg 放入公开安装包。
@@ -284,19 +310,68 @@ assets/audio/example.m4a
 pnpm install --frozen-lockfile
 pnpm build
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --features cli --locked
+cargo check --manifest-path src-tauri/Cargo.toml --all-features --locked
 cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings -A dead-code
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
+cargo run --manifest-path src-tauri/Cargo.toml --all-features --locked -- validate --config src-tauri/tests/fixtures/configs/component_animation.json --preview
 cargo tauri build --ci --no-sign -- --locked
 ```
 
-其中最后一条命令验证实际安装包，但跳过签名。正式分发还需要：
+Rust tests and runnable fixtures are organized under `src-tauri/tests/`; see `src-tauri/tests/README.md` for the functional fixture map.
 
-- 移除 `--no-sign` 并配置目标平台的签名或 notarization；
+其中最后一条命令验证实际 unsigned 安装包。发布 Windows/Linux 安装包前仍需要：
+
 - 在干净机器或虚拟机中安装并测试生成的 bundle；
+- 明确记录 Windows SmartScreen 等未签名提示属于已知发布限制；
 - 确认打包资源的许可证与来源；
 - 测试无音乐、带音乐、软件编码和可用的硬件编码路径。
+
+macOS 公开包暂不属于当前 release gate。
 
 ## License
 
 Apache License 2.0。详见 [LICENSE](./LICENSE)。
+
+
+## Scene groups
+
+The stable v4 scene can nest components with `GroupComponent`. Group transforms use normalized configuration coordinates and pixel-space affine composition:
+
+```text
+World = Parent × T(translation) × T(anchor) × R(rotation) × S(scale) × T(-anchor)
+```
+
+Group opacity is inherited multiplicatively. Identity groups bypass affine resampling; transformed descendants are rendered by their existing component painter and affine-composited once at the leaf boundary.
+
+
+## Component properties and animation
+
+The stable v4 scene uses a finite component-property model instead of arbitrary string reflection. New configs can use:
+
+```json
+{
+  "frame": 0,
+  "event_type": {
+    "animate_component_property": {
+      "element_id": "card_group",
+      "property": "rotation",
+      "start_value": 0.0,
+      "end_value": 20.0,
+      "duration": 1.0,
+      "curve": "ease_in_out"
+    }
+  }
+}
+```
+
+Supported properties are deliberately limited to `position_x`, `position_y`, `scale_x`, `scale_y`, `rotation`, `opacity`, `color`, and `progress`. Capabilities follow the component model rather than pretending every component owns every property:
+
+- all components: `position_x`, `position_y`;
+- `glyph`, `text`: `color`;
+- `image`: `opacity`;
+- `progress_bar`: `progress`;
+- `group`: `scale_x`, `scale_y`, `rotation`, `opacity`.
+
+For leaf rotation/scale, wrap the leaf in a `group`; the property system does not add a second transform model to every component. Unsupported property/component pairs fail validation instead of becoming silent no-ops.
+
+Legacy `set_component_position`, `move_component_position`, and `set_component_color` events remain readable and are executed through the same internal property state. They exist for legacy/migration continuity rather than as a second animation engine.

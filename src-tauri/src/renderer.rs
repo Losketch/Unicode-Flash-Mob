@@ -1,10 +1,16 @@
+use crate::config_validation::validate_render_config;
 use crate::content_template::{ContentTemplateResolver, TemplateContext};
-use crate::font_loader::{validate_settings, FontLoader};
+use crate::font_loader::FontLoader;
+use crate::image_renderer;
 use crate::json_config::{
     duration_to_frames, AnimationCurve, CharEntry, EventType, GlyphSpec, RenderConfig,
-    CURRENT_SCHEMA_VERSION,
 };
-use crate::scene::{Color, FontConfig, GlyphSelector, Position, SceneComponent};
+use crate::primitive_renderer;
+use crate::scene::{
+    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, GlyphSelector, Position,
+    Scale2D, SceneComponent,
+};
+use crate::scene_transform::{composite_affine, transform_matrix, SceneRenderContext};
 use crate::typography_renderer::{
     CenteredUnicodeRequest, ExplicitGlyphLayoutMetrics, ExplicitGlyphRequest,
     PreparedUnicodeLayout, TextPlacement, TypographyRenderer,
@@ -15,7 +21,7 @@ use crossbeam_channel::{bounded, unbounded};
 use image::{codecs::png::PngEncoder, ColorType, ImageEncoder, RgbaImage};
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -23,11 +29,39 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 const MAX_PREVIEW_FONT_CACHE_ENTRIES: usize = 16;
+const MAX_PREVIEW_IMAGE_CACHE_ENTRIES: usize = 16;
 
 static PREVIEW_FONT_CACHE: Lazy<Mutex<HashMap<String, Arc<FontLoader>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static PREVIEW_UNICODE_CACHE: Lazy<Mutex<HashMap<String, Arc<UnicodeDataManager>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+static PREVIEW_IMAGE_CACHE: Lazy<Mutex<HashMap<String, Arc<RgbaImage>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn load_preview_image(path: &Path, enabled: bool) -> Result<Option<Arc<RgbaImage>>> {
+    if !enabled {
+        return Ok(None);
+    }
+    let resolved_path = crate::json_config::resolve_asset_reference(path);
+    let key = resolved_path.to_string_lossy().to_string();
+    if let Some(image) = PREVIEW_IMAGE_CACHE
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Preview image cache lock poisoned"))?
+        .get(&key)
+        .cloned()
+    {
+        return Ok(Some(image));
+    }
+    let image = image_renderer::load_image(&resolved_path)?;
+    let mut cache = PREVIEW_IMAGE_CACHE
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Preview image cache lock poisoned"))?;
+    if cache.len() >= MAX_PREVIEW_IMAGE_CACHE_ENTRIES && !cache.contains_key(&key) {
+        cache.clear();
+    }
+    cache.insert(key, image.clone());
+    Ok(Some(image))
+}
 
 fn load_preview_font(path: &Path, config: &FontConfig) -> Result<Arc<FontLoader>> {
     let resolved_path = crate::json_config::resolve_asset_reference(path);
@@ -95,8 +129,7 @@ fn load_preview_unicode_manager() -> Arc<UnicodeDataManager> {
 #[derive(Clone, Default)]
 struct RenderState {
     current_bg_color: Color,
-    component_colors: HashMap<String, Color>,
-    component_positions: HashMap<String, Position>,
+    component_properties: HashMap<String, HashMap<AnimatableProperty, ComponentPropertyValue>>,
     animating_events: Vec<ActiveAnimation>,
     pause_frames_remaining: u64,
 }
@@ -121,8 +154,12 @@ struct FrameJob {
 
 #[derive(Clone)]
 struct ComponentFrameState {
-    color: Color,
+    color: Option<Color>,
     position: Position,
+    scale: Option<Scale2D>,
+    rotation: Option<f64>,
+    opacity: Option<f64>,
+    progress: Option<f64>,
 }
 
 #[derive(Clone)]
@@ -141,12 +178,13 @@ struct ActiveAnimation {
 
 #[derive(Clone)]
 enum AnimationType {
-    MoveComponent {
+    ComponentProperty {
         element_id: String,
-        start_pos: Position,
-        end_pos: Position,
+        property: AnimatableProperty,
+        start_value: ComponentPropertyValue,
+        end_value: ComponentPropertyValue,
     },
-    ColorTransition {
+    BackgroundColorTransition {
         start_color: Color,
         end_color: Color,
     },
@@ -180,10 +218,61 @@ fn lerp_color(a: Color, b: Color, t: f64) -> Color {
     }
 }
 
-fn lerp_position(a: Position, b: Position, t: f64) -> Position {
-    Position {
-        x: a.x * (1.0 - t) + b.x * t,
-        y: a.y * (1.0 - t) + b.y * t,
+fn set_component_property(
+    state: &mut RenderState,
+    element_id: &str,
+    property: AnimatableProperty,
+    value: ComponentPropertyValue,
+) {
+    state
+        .component_properties
+        .entry(element_id.to_string())
+        .or_default()
+        .insert(property, value);
+}
+
+fn component_property<'a>(
+    state: &'a RenderState,
+    element_id: &str,
+    property: AnimatableProperty,
+) -> Option<&'a ComponentPropertyValue> {
+    state
+        .component_properties
+        .get(element_id)
+        .and_then(|properties| properties.get(&property))
+}
+
+fn component_number_property(
+    state: &RenderState,
+    element_id: &str,
+    property: AnimatableProperty,
+) -> Option<f64> {
+    match component_property(state, element_id, property) {
+        Some(ComponentPropertyValue::Number(value)) => Some(*value),
+        _ => None,
+    }
+}
+
+fn component_color_property(state: &RenderState, element_id: &str) -> Option<Color> {
+    match component_property(state, element_id, AnimatableProperty::Color) {
+        Some(ComponentPropertyValue::Color(color)) => Some(color.clone()),
+        _ => None,
+    }
+}
+
+fn interpolate_property_value(
+    start: &ComponentPropertyValue,
+    end: &ComponentPropertyValue,
+    t: f64,
+) -> ComponentPropertyValue {
+    match (start, end) {
+        (ComponentPropertyValue::Number(start), ComponentPropertyValue::Number(end)) => {
+            ComponentPropertyValue::Number(start * (1.0 - t) + end * t)
+        }
+        (ComponentPropertyValue::Color(start), ComponentPropertyValue::Color(end)) => {
+            ComponentPropertyValue::Color(lerp_color(start.clone(), end.clone(), t))
+        }
+        _ => end.clone(),
     }
 }
 
@@ -214,6 +303,21 @@ fn typographic_glyph_origin(
     )
 }
 
+fn push_animation(
+    state: &mut RenderState,
+    start_frame: u64,
+    duration_frames: u64,
+    curve: AnimationCurve,
+    animation_type: AnimationType,
+) {
+    state.animating_events.push(ActiveAnimation {
+        start_frame,
+        duration_frames,
+        curve,
+        animation_type,
+    });
+}
+
 fn update_animations(state: &mut RenderState, frame: u64) {
     let animations = std::mem::take(&mut state.animating_events);
 
@@ -221,16 +325,15 @@ fn update_animations(state: &mut RenderState, frame: u64) {
         let elapsed = frame.saturating_sub(anim.start_frame);
         if elapsed >= anim.duration_frames {
             match &anim.animation_type {
-                AnimationType::MoveComponent {
+                AnimationType::ComponentProperty {
                     element_id,
-                    end_pos,
+                    property,
+                    end_value,
                     ..
                 } => {
-                    state
-                        .component_positions
-                        .insert(element_id.clone(), end_pos.clone());
+                    set_component_property(state, element_id, *property, end_value.clone());
                 }
-                AnimationType::ColorTransition { end_color, .. } => {
+                AnimationType::BackgroundColorTransition { end_color, .. } => {
                     state.current_bg_color = end_color.clone();
                 }
             }
@@ -241,17 +344,16 @@ fn update_animations(state: &mut RenderState, frame: u64) {
             .curve
             .apply(elapsed as f64 / anim.duration_frames as f64);
         match &anim.animation_type {
-            AnimationType::MoveComponent {
+            AnimationType::ComponentProperty {
                 element_id,
-                start_pos,
-                end_pos,
+                property,
+                start_value,
+                end_value,
             } => {
-                let position = lerp_position(start_pos.clone(), end_pos.clone(), t);
-                state
-                    .component_positions
-                    .insert(element_id.clone(), position);
+                let value = interpolate_property_value(start_value, end_value, t);
+                set_component_property(state, element_id, *property, value);
             }
-            AnimationType::ColorTransition {
+            AnimationType::BackgroundColorTransition {
                 start_color,
                 end_color,
             } => {
@@ -270,65 +372,121 @@ fn process_events(
     is_new_char: bool,
 ) {
     for event in &config.events {
-        if event.frame == frame {
-            match &event.event_type {
-                EventType::SetBackgroundColor { color } => {
-                    state.current_bg_color = color.clone();
-                }
-                EventType::SetComponentColor { element_id, color } => {
-                    state
-                        .component_colors
-                        .insert(element_id.clone(), color.clone());
-                }
-                EventType::SetComponentPosition {
+        if event.frame != frame {
+            continue;
+        }
+        match &event.event_type {
+            EventType::SetBackgroundColor { color } => {
+                state.current_bg_color = color.clone();
+            }
+            EventType::SetComponentColor { element_id, color } => {
+                set_component_property(
+                    state,
                     element_id,
-                    position,
-                } => {
-                    state
-                        .component_positions
-                        .insert(element_id.clone(), position.clone());
-                }
-                EventType::MoveComponentPosition {
+                    AnimatableProperty::Color,
+                    ComponentPropertyValue::Color(color.clone()),
+                );
+            }
+            EventType::SetComponentPosition {
+                element_id,
+                position,
+            } => {
+                set_component_property(
+                    state,
                     element_id,
-                    start_position,
-                    end_position,
-                    duration,
-                    curve,
-                } => {
-                    let duration_frames = duration_to_frames(*duration, config.fps);
-                    state.animating_events.push(ActiveAnimation {
-                        start_frame: frame,
-                        duration_frames,
-                        curve: curve.clone(),
-                        animation_type: AnimationType::MoveComponent {
-                            element_id: element_id.clone(),
-                            start_pos: start_position.clone(),
-                            end_pos: end_position.clone(),
-                        },
-                    });
-                }
-                EventType::ColorTransition {
-                    start_color,
-                    end_color,
-                    duration,
-                    curve,
-                } => {
-                    let duration_frames = duration_to_frames(*duration, config.fps);
-                    state.animating_events.push(ActiveAnimation {
-                        start_frame: frame,
-                        duration_frames,
-                        curve: curve.clone(),
-                        animation_type: AnimationType::ColorTransition {
-                            start_color: start_color.clone(),
-                            end_color: end_color.clone(),
-                        },
-                    });
-                }
-                EventType::Pause { duration } => {
-                    state.pause_frames_remaining = state
-                        .pause_frames_remaining
-                        .saturating_add(duration_to_frames(*duration, config.fps));
-                }
+                    AnimatableProperty::PositionX,
+                    ComponentPropertyValue::Number(position.x),
+                );
+                set_component_property(
+                    state,
+                    element_id,
+                    AnimatableProperty::PositionY,
+                    ComponentPropertyValue::Number(position.y),
+                );
+            }
+            EventType::MoveComponentPosition {
+                element_id,
+                start_position,
+                end_position,
+                duration,
+                curve,
+            } => {
+                let duration_frames = duration_to_frames(*duration, config.fps);
+                push_animation(
+                    state,
+                    frame,
+                    duration_frames,
+                    curve.clone(),
+                    AnimationType::ComponentProperty {
+                        element_id: element_id.clone(),
+                        property: AnimatableProperty::PositionX,
+                        start_value: ComponentPropertyValue::Number(start_position.x),
+                        end_value: ComponentPropertyValue::Number(end_position.x),
+                    },
+                );
+                push_animation(
+                    state,
+                    frame,
+                    duration_frames,
+                    curve.clone(),
+                    AnimationType::ComponentProperty {
+                        element_id: element_id.clone(),
+                        property: AnimatableProperty::PositionY,
+                        start_value: ComponentPropertyValue::Number(start_position.y),
+                        end_value: ComponentPropertyValue::Number(end_position.y),
+                    },
+                );
+            }
+            EventType::SetComponentProperty {
+                element_id,
+                property,
+                value,
+            } => {
+                set_component_property(state, element_id, *property, value.clone());
+            }
+            EventType::AnimateComponentProperty {
+                element_id,
+                property,
+                start_value,
+                end_value,
+                duration,
+                curve,
+            } => {
+                push_animation(
+                    state,
+                    frame,
+                    duration_to_frames(*duration, config.fps),
+                    curve.clone(),
+                    AnimationType::ComponentProperty {
+                        element_id: element_id.clone(),
+                        property: *property,
+                        start_value: start_value.clone(),
+                        end_value: end_value.clone(),
+                    },
+                );
+            }
+            EventType::ColorTransition {
+                start_color,
+                end_color,
+                duration,
+                curve,
+            } => {
+                let duration_frames = duration_to_frames(*duration, config.fps);
+                push_animation(
+                    state,
+                    frame,
+                    duration_frames,
+                    curve.clone(),
+                    AnimationType::BackgroundColorTransition {
+                        start_color: start_color.clone(),
+                        end_color: end_color.clone(),
+                    },
+                );
+            }
+            EventType::Pause { duration } => {
+                state.pause_frames_remaining = state
+                    .pause_frames_remaining
+                    .saturating_add(duration_to_frames(*duration, config.fps));
             }
         }
     }
@@ -350,10 +508,6 @@ pub fn detect_encoder(ffmpeg_path: &Path, hevc: bool) -> Option<String> {
         &["h264_qsv", "h264_nvenc", "libx264"]
     };
     find_working_encoder(ffmpeg_path, candidates)
-}
-
-pub fn detect_hardware_encoder(ffmpeg_path: &Path) -> Option<String> {
-    find_working_encoder(ffmpeg_path, &["h264_qsv", "h264_nvenc"])
 }
 
 fn find_working_encoder(ffmpeg_path: &Path, candidates: &[&str]) -> Option<String> {
@@ -462,134 +616,6 @@ impl ProgressReporter for CallbackProgressReporter {
     }
 }
 
-fn validate_position(position: &Position, label: &str) -> Result<()> {
-    if !position.x.is_finite() || !position.y.is_finite() {
-        anyhow::bail!("{label} must contain finite coordinates");
-    }
-    Ok(())
-}
-
-fn validate_render_config(config: &RenderConfig, require_frames: bool) -> Result<()> {
-    if config.schema_version > CURRENT_SCHEMA_VERSION {
-        anyhow::bail!(
-            "Unsupported configuration schema {}; this build supports up to {}",
-            config.schema_version,
-            CURRENT_SCHEMA_VERSION
-        );
-    }
-
-    let (width, height) = config.resolution;
-    if width == 0 || height == 0 {
-        anyhow::bail!("Resolution must be greater than zero");
-    }
-    if !config.fps.is_finite() || config.fps <= 0.0 {
-        anyhow::bail!("FPS must be a finite value greater than zero");
-    }
-    if require_frames && config.total_frames() == 0 {
-        anyhow::bail!("The render contains no frames");
-    }
-    if require_frames && config.output_path.as_os_str().is_empty() {
-        anyhow::bail!("Output path must not be empty");
-    }
-    if config.dynamic_background
-        && !config.fixed_background
-        && config.events.is_empty()
-        && config.background_colors.is_empty()
-    {
-        anyhow::bail!("Dynamic background requires at least one color");
-    }
-
-    let mut component_ids = HashSet::new();
-    for (index, component) in config.components.iter().enumerate() {
-        let id = component.id().trim();
-        if id.is_empty() {
-            anyhow::bail!("Component {index} ID must not be empty");
-        }
-        if !component_ids.insert(id.to_string()) {
-            anyhow::bail!("Duplicate component ID: {id}");
-        }
-        validate_position(component.position(), &format!("component {id} position"))?;
-
-        if component.enabled() {
-            if let Some(font) = component.font() {
-                validate_settings(font)
-                    .with_context(|| format!("Invalid font settings for component {id:?}"))?;
-            }
-            if component.fonts().is_some_and(|fonts| fonts.is_empty()) {
-                anyhow::bail!("Component {id} has no font configured");
-            }
-        }
-
-        if let SceneComponent::Text(text) = component {
-            if !text.max_width.is_finite() || text.max_width < 0.0 {
-                anyhow::bail!("Component {id} max_width must be finite and non-negative");
-            }
-        }
-    }
-
-    for (index, entry) in config.characters.iter().enumerate() {
-        if let Some(position) = &entry.position {
-            validate_position(position, &format!("character {index} position"))?;
-        }
-    }
-    for (index, event) in config.events.iter().enumerate() {
-        match &event.event_type {
-            EventType::SetComponentPosition {
-                element_id,
-                position,
-            } => {
-                if !component_ids.contains(element_id) {
-                    anyhow::bail!("event {index} targets unknown component {element_id}");
-                }
-                validate_position(position, &format!("event {index} position"))?;
-            }
-            EventType::MoveComponentPosition {
-                element_id,
-                start_position,
-                end_position,
-                duration,
-                ..
-            } => {
-                if !component_ids.contains(element_id) {
-                    anyhow::bail!("event {index} targets unknown component {element_id}");
-                }
-                validate_position(start_position, &format!("event {index} start position"))?;
-                validate_position(end_position, &format!("event {index} end position"))?;
-                if !duration.is_finite() || *duration < 0.0 {
-                    anyhow::bail!("event {index} duration must be finite and non-negative");
-                }
-            }
-            EventType::SetComponentColor { element_id, .. } => {
-                if !component_ids.contains(element_id) {
-                    anyhow::bail!("event {index} targets unknown component {element_id}");
-                }
-            }
-            EventType::ColorTransition { duration, .. } | EventType::Pause { duration } => {
-                if !duration.is_finite() || *duration < 0.0 {
-                    anyhow::bail!("event {index} duration must be finite and non-negative");
-                }
-            }
-            EventType::SetBackgroundColor { .. } => {}
-        }
-    }
-
-    if require_frames {
-        if config.ffmpeg.path.as_os_str().is_empty() {
-            anyhow::bail!("FFmpeg path must not be empty");
-        }
-        if config.ffmpeg.encoder.trim().is_empty() {
-            anyhow::bail!("FFmpeg encoder must not be empty");
-        }
-        if config.ffmpeg.pixel_format.trim().is_empty() {
-            anyhow::bail!("FFmpeg pixel format must not be empty");
-        }
-        if config.ffmpeg.crf > 51 {
-            anyhow::bail!("FFmpeg CRF must be between 0 and 51");
-        }
-    }
-    Ok(())
-}
-
 pub fn render_video(config: &RenderConfig) -> Result<()> {
     render_video_with_progress(config, None)
 }
@@ -597,6 +623,76 @@ pub fn render_video(config: &RenderConfig) -> Result<()> {
 /// Render a single configured character entry as a PNG. This deliberately
 /// uses the same glyph parsing, fallback selection, and drawing path as video
 /// rendering so CLI and GUI previews match the final result.
+fn scale_component_font_sizes(components: &mut [SceneComponent], scale: f32) {
+    for component in components {
+        if let Some(font) = component.font_mut() {
+            font.size *= scale;
+        }
+        if let SceneComponent::Group(group) = component {
+            scale_component_font_sizes(&mut group.children, scale);
+        }
+    }
+}
+
+fn collect_preview_resources(
+    components: &[SceneComponent],
+    parent_enabled: bool,
+    fonts_out: &mut HashMap<String, Vec<Arc<FontLoader>>>,
+    images_out: &mut HashMap<String, Arc<RgbaImage>>,
+) -> Result<()> {
+    for component in components {
+        let enabled = parent_enabled && component.enabled();
+        let fonts = match (component.fonts(), component.font()) {
+            (Some(paths), Some(font)) => load_preview_fonts(paths, font, enabled)?,
+            _ => Vec::new(),
+        };
+        fonts_out.insert(component.id().to_string(), fonts);
+        if let SceneComponent::Image(image) = component {
+            if let Some(asset) = load_preview_image(&image.source, enabled)? {
+                images_out.insert(component.id().to_string(), asset);
+            }
+        }
+        if let SceneComponent::Group(group) = component {
+            collect_preview_resources(&group.children, enabled, fonts_out, images_out)?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_render_resources(
+    components: &[SceneComponent],
+    parent_enabled: bool,
+    fonts_out: &mut HashMap<String, Vec<Arc<FontLoader>>>,
+    images_out: &mut HashMap<String, Arc<RgbaImage>>,
+) -> Result<()> {
+    for component in components {
+        let enabled = parent_enabled && component.enabled();
+        let fonts = match (component.fonts(), component.font()) {
+            (Some(paths), Some(font)) => load_configured_fonts(
+                paths,
+                font,
+                &format!("component {}", component.id()),
+                enabled,
+            )?,
+            _ => Vec::new(),
+        };
+        fonts_out.insert(component.id().to_string(), fonts);
+        if let SceneComponent::Image(image) = component {
+            if enabled {
+                let resolved = crate::json_config::resolve_asset_reference(&image.source);
+                let asset = image_renderer::load_image(&resolved).with_context(|| {
+                    format!("Failed to load component {} image", component.id())
+                })?;
+                images_out.insert(component.id().to_string(), asset);
+            }
+        }
+        if let SceneComponent::Group(group) = component {
+            collect_render_resources(&group.children, enabled, fonts_out, images_out)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn render_frame_png(
     config: &RenderConfig,
     entry_index: usize,
@@ -620,23 +716,19 @@ pub fn render_frame_png(
             (source_width as f32 * scale).round().max(1.0) as u32,
             (source_height as f32 * scale).round().max(1.0) as u32,
         );
-        for component in &mut preview_config.components {
-            if let Some(font) = component.font_mut() {
-                font.size *= scale;
-            }
-        }
+        scale_component_font_sizes(&mut preview_config.components, scale);
         preview_config.text_x_offset = (preview_config.text_x_offset as f32 * scale).round() as i32;
         preview_config.text_y_offset = (preview_config.text_y_offset as f32 * scale).round() as i32;
     }
 
     let mut component_fonts = HashMap::new();
-    for component in &preview_config.components {
-        let fonts = match (component.fonts(), component.font()) {
-            (Some(paths), Some(font)) => load_preview_fonts(paths, font, component.enabled())?,
-            _ => Vec::new(),
-        };
-        component_fonts.insert(component.id().to_string(), fonts);
-    }
+    let mut component_images = HashMap::new();
+    collect_preview_resources(
+        &preview_config.components,
+        true,
+        &mut component_fonts,
+        &mut component_images,
+    )?;
 
     let unicode_manager = load_preview_unicode_manager();
     let template_resolver = ContentTemplateResolver::new(preview_config.content_templates.clone());
@@ -656,6 +748,7 @@ pub fn render_frame_png(
         background_color: &background_color,
         component_states: &component_states,
         component_fonts: &component_fonts,
+        component_images: &component_images,
         template_resolver: &template_resolver,
         unicode_manager: &unicode_manager,
         width,
@@ -722,6 +815,7 @@ struct PreparedRender {
     total_frames: u64,
     unicode_manager: Arc<UnicodeDataManager>,
     component_fonts: HashMap<String, Vec<Arc<FontLoader>>>,
+    component_images: HashMap<String, Arc<RgbaImage>>,
     template_resolver: Arc<ContentTemplateResolver>,
     ffmpeg_path: PathBuf,
     encoder: String,
@@ -733,6 +827,7 @@ struct PreparedRender {
 struct FrameRenderer<'a> {
     config: &'a RenderConfig,
     component_fonts: &'a HashMap<String, Vec<Arc<FontLoader>>>,
+    component_images: &'a HashMap<String, Arc<RgbaImage>>,
     template_resolver: &'a ContentTemplateResolver,
     unicode_manager: &'a UnicodeDataManager,
     width: u32,
@@ -744,6 +839,7 @@ impl<'a> FrameRenderer<'a> {
         Self {
             config,
             component_fonts: &prepared.component_fonts,
+            component_images: &prepared.component_images,
             template_resolver: prepared.template_resolver.as_ref(),
             unicode_manager: prepared.unicode_manager.as_ref(),
             width: prepared.width,
@@ -768,6 +864,7 @@ impl<'a> FrameRenderer<'a> {
             background_color: &job.background_color,
             component_states: &job.component_states,
             component_fonts: self.component_fonts,
+            component_images: self.component_images,
             template_resolver: self.template_resolver,
             unicode_manager: self.unicode_manager,
             width: self.width,
@@ -813,18 +910,14 @@ fn prepare_render(
     );
 
     let mut component_fonts = HashMap::new();
-    for component in &config.components {
-        let fonts = match (component.fonts(), component.font()) {
-            (Some(paths), Some(font)) => load_configured_fonts(
-                paths,
-                font,
-                &format!("component {}", component.id()),
-                component.enabled(),
-            )?,
-            _ => Vec::new(),
-        };
-        component_fonts.insert(component.id().to_string(), fonts);
-    }
+    let mut component_images = HashMap::new();
+    collect_render_resources(
+        &config.components,
+        true,
+        &mut component_fonts,
+        &mut component_images,
+    )?;
+
     let template_resolver = Arc::new(ContentTemplateResolver::new(
         config.content_templates.clone(),
     ));
@@ -840,15 +933,17 @@ fn prepare_render(
     };
     println!("Encoder: {}", encoder);
 
-    let music_path = config.music_path.as_ref().and_then(|music| {
-        let resolved = crate::json_config::resolve_asset_reference(music);
-        if resolved.exists() {
-            Some(resolved)
-        } else {
-            eprintln!("Warning: music file not found: {}", music.display());
-            None
-        }
-    });
+    let music_path = config
+        .music_path
+        .as_ref()
+        .map(|music| {
+            let resolved = crate::json_config::resolve_asset_reference(music);
+            if !resolved.is_file() {
+                anyhow::bail!("Music file not found: {}", resolved.display());
+            }
+            Ok(resolved)
+        })
+        .transpose()?;
 
     let progress: Arc<dyn ProgressReporter> = match progress_callback {
         Some(callback) => Arc::new(CallbackProgressReporter::new(total_frames, callback)),
@@ -861,6 +956,7 @@ fn prepare_render(
         total_frames,
         unicode_manager,
         component_fonts,
+        component_images,
         template_resolver,
         ffmpeg_path,
         encoder,
@@ -1545,8 +1641,7 @@ fn render_video_multi_process(config: &RenderConfig, prepared: &PreparedRender) 
         let permit_receivers = Arc::new(permit_receivers);
         let frames_ref = &frames;
 
-        // Shared renderer pool: parallel_workers now applies to multi-process
-        // mode too. Completed frames go directly to their encoder's own queue.
+        // A shared renderer pool feeds completed frames directly to each encoder queue.
         let mut render_handles = Vec::new();
         for _ in 0..render_worker_count {
             let tasks = task_receiver.clone();
@@ -1667,16 +1762,29 @@ fn resolve_component_frame_states(
     let primary_glyph_id = config
         .primary_glyph_component()
         .map(|component| component.id.as_str());
-    config
-        .components
-        .iter()
-        .map(|component| {
-            let id = component.id();
-            let is_primary_glyph = primary_glyph_id == Some(id);
-            let color = state
-                .component_colors
-                .get(id)
-                .cloned()
+    let mut states = HashMap::new();
+    resolve_component_frame_states_recursive(
+        &config.components,
+        primary_glyph_id,
+        entry,
+        state,
+        &mut states,
+    );
+    states
+}
+
+fn resolve_component_frame_states_recursive(
+    components: &[SceneComponent],
+    primary_glyph_id: Option<&str>,
+    entry: &CharEntry,
+    state: &RenderState,
+    out: &mut HashMap<String, ComponentFrameState>,
+) {
+    for component in components {
+        let id = component.id();
+        let is_primary_glyph = primary_glyph_id == Some(id);
+        let color = component.color().map(|base_color| {
+            component_color_property(state, id)
                 .or_else(|| {
                     if is_primary_glyph {
                         entry.text_color.clone()
@@ -1684,22 +1792,82 @@ fn resolve_component_frame_states(
                         None
                     }
                 })
-                .unwrap_or_else(|| component.color().clone());
-            let position = state
-                .component_positions
-                .get(id)
-                .cloned()
-                .or_else(|| {
-                    if is_primary_glyph {
-                        entry.position.clone()
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| component.position().clone());
-            (id.to_string(), ComponentFrameState { color, position })
-        })
-        .collect()
+                .unwrap_or_else(|| base_color.clone())
+        });
+
+        let base_position = component.position();
+        let entry_position = is_primary_glyph
+            .then_some(entry.position.as_ref())
+            .flatten();
+        let position = Position {
+            x: component_number_property(state, id, AnimatableProperty::PositionX)
+                .or_else(|| entry_position.map(|position| position.x))
+                .unwrap_or(base_position.x),
+            y: component_number_property(state, id, AnimatableProperty::PositionY)
+                .or_else(|| entry_position.map(|position| position.y))
+                .unwrap_or(base_position.y),
+        };
+
+        let (scale, rotation, opacity, progress) = match component {
+            SceneComponent::Group(group) => (
+                Some(Scale2D {
+                    x: component_number_property(state, id, AnimatableProperty::ScaleX)
+                        .unwrap_or(group.transform.scale.x),
+                    y: component_number_property(state, id, AnimatableProperty::ScaleY)
+                        .unwrap_or(group.transform.scale.y),
+                }),
+                Some(
+                    component_number_property(state, id, AnimatableProperty::Rotation)
+                        .unwrap_or(group.transform.rotation),
+                ),
+                Some(
+                    component_number_property(state, id, AnimatableProperty::Opacity)
+                        .unwrap_or(f64::from(group.opacity)),
+                ),
+                None,
+            ),
+            SceneComponent::Image(image) => (
+                None,
+                None,
+                Some(
+                    component_number_property(state, id, AnimatableProperty::Opacity)
+                        .unwrap_or(f64::from(image.opacity)),
+                ),
+                None,
+            ),
+            SceneComponent::ProgressBar(progress) => (
+                None,
+                None,
+                None,
+                Some(
+                    component_number_property(state, id, AnimatableProperty::Progress)
+                        .unwrap_or(progress.progress),
+                ),
+            ),
+            SceneComponent::Glyph(_) | SceneComponent::Text(_) => (None, None, None, None),
+        };
+
+        out.insert(
+            id.to_string(),
+            ComponentFrameState {
+                color,
+                position,
+                scale,
+                rotation,
+                opacity,
+                progress,
+            },
+        );
+        if let SceneComponent::Group(group) = component {
+            resolve_component_frame_states_recursive(
+                &group.children,
+                primary_glyph_id,
+                entry,
+                state,
+                out,
+            );
+        }
+    }
 }
 
 /// Resolve one explicit glyph selector against a component's font fallback list.
@@ -1793,6 +1961,7 @@ struct FrameRenderCtx<'a> {
     background_color: &'a Color,
     component_states: &'a HashMap<String, ComponentFrameState>,
     component_fonts: &'a HashMap<String, Vec<Arc<FontLoader>>>,
+    component_images: &'a HashMap<String, Arc<RgbaImage>>,
     template_resolver: &'a ContentTemplateResolver,
     unicode_manager: &'a UnicodeDataManager,
     width: u32,
@@ -1806,6 +1975,13 @@ fn fill_frame_background(image: &mut RgbaImage, color: &Color) {
         pixel[2] = color.b;
         pixel[3] = 255;
     }
+}
+
+fn frame_state_color(state: &ComponentFrameState) -> Result<&Color> {
+    state
+        .color
+        .as_ref()
+        .context("Typography component is missing its frame color")
 }
 
 struct CombiningOverlayRequest<'a, 'ctx> {
@@ -1843,11 +2019,12 @@ fn render_combining_overlay(
         metrics.ascent,
         metrics.descent,
     );
+    let base_color = frame_state_color(request.state)?;
     let overlay_color = Color {
-        r: request.state.color.r,
-        g: request.state.color.g,
-        b: request.state.color.b,
-        a: u16::from(request.state.color.a).div_ceil(2) as u8,
+        r: base_color.r,
+        g: base_color.g,
+        b: base_color.b,
+        a: u16::from(base_color.a).div_ceil(2) as u8,
     };
     let handled = typography.render_explicit_glyph(
         ExplicitGlyphRequest {
@@ -2066,7 +2243,7 @@ fn render_mixed_glyph_segments(
                     font_size,
                     text: &text,
                     font_index,
-                    color: state.color.clone(),
+                    color: frame_state_color(state)?.clone(),
                     center,
                 };
                 if let Some(layout) = typography.prepare_centered_unicode_sequence(&request)? {
@@ -2116,7 +2293,7 @@ fn render_mixed_glyph_segments(
                     PreparedGlyphRenderRequest {
                         glyphs: std::slice::from_ref(glyph),
                         font_config: &component.font,
-                        color: &state.color,
+                        color: frame_state_color(state)?,
                         background_color: ctx.background_color,
                         origin: (origin_x, origin_y),
                     },
@@ -2166,7 +2343,7 @@ fn render_glyph_component(
                     font_size,
                     text: &text,
                     font_index: None,
-                    color: state.color.clone(),
+                    color: frame_state_color(state)?.clone(),
                     center: (center_x, center_y),
                 },
                 image,
@@ -2251,7 +2428,7 @@ fn render_glyph_component(
         PreparedGlyphRenderRequest {
             glyphs: &prepared,
             font_config: &component.font,
-            color: &state.color,
+            color: frame_state_color(state)?,
             background_color: ctx.background_color,
             origin: (origin_x, origin_y),
         },
@@ -2271,7 +2448,7 @@ fn render_text_component(
     typography.render_text(
         component,
         &text,
-        state.color.clone(),
+        frame_state_color(state)?.clone(),
         TextPlacement {
             origin_x: (state.position.x * ctx.width as f64) as f32,
             last_baseline_y: (state.position.y * ctx.height as f64) as f32,
@@ -2281,402 +2458,113 @@ fn render_text_component(
     )
 }
 
+fn render_leaf_component(
+    ctx: &FrameRenderCtx<'_>,
+    component: &SceneComponent,
+    typography: &mut TypographyRenderer,
+    image: &mut RgbaImage,
+) -> Result<()> {
+    let state = ctx
+        .component_states
+        .get(component.id())
+        .context("Missing component frame state")?;
+    let fonts = ctx
+        .component_fonts
+        .get(component.id())
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    match component {
+        SceneComponent::Glyph(glyph) => {
+            render_glyph_component(ctx, glyph, state, fonts, typography, image)?;
+        }
+        SceneComponent::Text(text) => {
+            render_text_component(ctx, text, state, typography, image)?;
+        }
+        SceneComponent::Image(image_component) => {
+            let source = ctx
+                .component_images
+                .get(component.id())
+                .context("Missing prepared image asset")?;
+            let mut resolved = image_component.clone();
+            if let Some(opacity) = state.opacity {
+                resolved.opacity = opacity as f32;
+            }
+            image_renderer::render_image_component(
+                &resolved,
+                &state.position,
+                source.as_ref(),
+                image,
+            );
+        }
+        SceneComponent::ProgressBar(progress) => {
+            let mut resolved = progress.clone();
+            if let Some(value) = state.progress {
+                resolved.progress = value;
+            }
+            primitive_renderer::render_progress_bar(&resolved, &state.position, image);
+        }
+        SceneComponent::Group(_) => unreachable!("groups are handled by recursive traversal"),
+    }
+    Ok(())
+}
+
+fn render_scene_component(
+    ctx: &FrameRenderCtx<'_>,
+    component: &SceneComponent,
+    inherited: SceneRenderContext,
+    typography: &mut TypographyRenderer,
+    image: &mut RgbaImage,
+) -> Result<()> {
+    if !component.enabled() {
+        return Ok(());
+    }
+    if let SceneComponent::Group(group) = component {
+        let state = ctx
+            .component_states
+            .get(component.id())
+            .context("Missing group frame state")?;
+        let mut transform = group.transform.clone();
+        if let Some(scale) = &state.scale {
+            transform.scale = scale.clone();
+        }
+        if let Some(rotation) = state.rotation {
+            transform.rotation = rotation;
+        }
+        let local = transform_matrix(&transform, &state.position, ctx.width, ctx.height);
+        let opacity = state.opacity.unwrap_or(f64::from(group.opacity)) as f32;
+        let child_context = inherited.child(local, opacity);
+        if child_context.opacity <= 0.0 {
+            return Ok(());
+        }
+        for child in &group.children {
+            render_scene_component(ctx, child, child_context, typography, image)?;
+        }
+        return Ok(());
+    }
+
+    if inherited.transform.is_identity() && (inherited.opacity - 1.0).abs() <= f32::EPSILON {
+        return render_leaf_component(ctx, component, typography, image);
+    }
+
+    let mut layer = RgbaImage::new(ctx.width, ctx.height);
+    render_leaf_component(ctx, component, typography, &mut layer)?;
+    composite_affine(&layer, image, inherited.transform, inherited.opacity);
+    Ok(())
+}
+
 fn render_frame_parallel(
     ctx: &FrameRenderCtx<'_>,
     typography: &mut TypographyRenderer,
 ) -> Result<Vec<u8>> {
     let mut image = RgbaImage::new(ctx.width, ctx.height);
     fill_frame_background(&mut image, ctx.background_color);
-
+    let root = SceneRenderContext::default();
     for component in &ctx.config.components {
-        if !component.enabled() {
-            continue;
-        }
-        let state = ctx
-            .component_states
-            .get(component.id())
-            .context("Missing component frame state")?;
-        let fonts = ctx
-            .component_fonts
-            .get(component.id())
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-
-        match component {
-            SceneComponent::Glyph(glyph) => {
-                render_glyph_component(ctx, glyph, state, fonts, typography, &mut image)?;
-            }
-            SceneComponent::Text(text) => {
-                render_text_component(ctx, text, state, typography, &mut image)?;
-            }
-        }
+        render_scene_component(ctx, component, root, typography, &mut image)?;
     }
-
     Ok(image.into_raw())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        add_rawvideo_input_args, add_stream_mapping_args, concat_file_entry,
-        glyph_sequence_segments, initial_render_state, next_frame_job, render_frame_png,
-        typographic_glyph_origin, unicode_shaping_sequence, validate_render_config,
-        GlyphSequenceSegment,
-    };
-    use crate::json_config::{CharEntry, Event, EventType, GlyphSpec, RenderConfig};
-    use crate::scene::{Color, GlyphSelector, Position};
-    use std::path::Path;
-    use std::process::Command;
-
-    #[test]
-    fn unicode_sequence_is_kept_together_for_shaping() {
-        let specs = vec![
-            GlyphSpec {
-                selector: GlyphSelector::CodePoint('f' as u32),
-                font_index: None,
-            },
-            GlyphSpec {
-                selector: GlyphSelector::CodePoint('f' as u32),
-                font_index: None,
-            },
-            GlyphSpec {
-                selector: GlyphSelector::CodePoint('i' as u32),
-                font_index: None,
-            },
-        ];
-        assert_eq!(unicode_shaping_sequence(&specs).as_deref(), Some("ffi"));
-    }
-
-    #[test]
-    fn single_unicode_selector_still_uses_shaping() {
-        let specs = vec![GlyphSpec {
-            selector: GlyphSelector::CodePoint('A' as u32),
-            font_index: None,
-        }];
-        assert_eq!(unicode_shaping_sequence(&specs).as_deref(), Some("A"));
-    }
-
-    #[test]
-    fn mixed_selector_expression_keeps_unicode_runs_shapeable() {
-        let specs = CharEntry::glyph_specs_from("#83/zeroU+30");
-        assert_eq!(specs.len(), 3);
-        assert_eq!(
-            glyph_sequence_segments(&specs),
-            vec![
-                GlyphSequenceSegment::Exact(specs[0].clone()),
-                GlyphSequenceSegment::Exact(specs[1].clone()),
-                GlyphSequenceSegment::Unicode {
-                    text: "0".to_string(),
-                    font_index: None,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn adjacent_unicode_after_exact_selector_stays_one_shaping_run() {
-        let specs = vec![
-            GlyphSpec {
-                selector: GlyphSelector::CodePoint('A' as u32),
-                font_index: None,
-            },
-            GlyphSpec {
-                selector: GlyphSelector::Index(3),
-                font_index: None,
-            },
-            GlyphSpec {
-                selector: GlyphSelector::CodePoint('B' as u32),
-                font_index: None,
-            },
-            GlyphSpec {
-                selector: GlyphSelector::CodePoint('C' as u32),
-                font_index: None,
-            },
-        ];
-        assert_eq!(
-            glyph_sequence_segments(&specs),
-            vec![
-                GlyphSequenceSegment::Unicode {
-                    text: "A".to_string(),
-                    font_index: None,
-                },
-                GlyphSequenceSegment::Exact(specs[1].clone()),
-                GlyphSequenceSegment::Unicode {
-                    text: "BC".to_string(),
-                    font_index: None,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn explicit_glyph_selectors_bypass_unicode_shaping() {
-        let explicit = vec![
-            GlyphSpec {
-                selector: GlyphSelector::CodePoint('A' as u32),
-                font_index: None,
-            },
-            GlyphSpec {
-                selector: GlyphSelector::Index(3),
-                font_index: None,
-            },
-        ];
-        assert!(unicode_shaping_sequence(&explicit).is_none());
-    }
-
-    #[test]
-    fn adjacent_unicode_with_same_font_index_stays_one_shaping_run() {
-        let specs = CharEntry::glyph_specs_from("U+41{2}U+30A{2}");
-        assert_eq!(
-            glyph_sequence_segments(&specs),
-            vec![GlyphSequenceSegment::Unicode {
-                text: "A\u{030A}".to_string(),
-                font_index: Some(2),
-            }]
-        );
-    }
-
-    #[test]
-    fn pinned_emoji_modifier_sequence_stays_one_shaping_run() {
-        let specs = CharEntry::glyph_specs_from("U+1F44D{3}U+1F3FD{3}");
-        assert_eq!(
-            glyph_sequence_segments(&specs),
-            vec![GlyphSequenceSegment::Unicode {
-                text: "👍🏽".to_string(),
-                font_index: Some(3),
-            }]
-        );
-    }
-
-    #[test]
-    fn changing_font_index_breaks_unicode_shaping_runs() {
-        let specs = CharEntry::glyph_specs_from("U+41{1}U+42{2}U+43{2}");
-        assert_eq!(
-            glyph_sequence_segments(&specs),
-            vec![
-                GlyphSequenceSegment::Unicode {
-                    text: "A".to_string(),
-                    font_index: Some(1),
-                },
-                GlyphSequenceSegment::Unicode {
-                    text: "BC".to_string(),
-                    font_index: Some(2),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn invalid_axis_tag_is_reported_as_component_configuration_error() {
-        let mut config = RenderConfig::default();
-        let font = config.components[0].font_mut().unwrap();
-        font.font_variation_settings.insert("Italic".into(), 20.0);
-        let error = validate_render_config(&config, false).unwrap_err();
-        let message = format!("{error:#}");
-        assert!(message.contains("Invalid font settings for component"));
-        assert!(message.contains("variable-font axis"));
-        assert!(message.contains("Italic"));
-    }
-
-    #[test]
-    fn ffmpeg_stream_maps_follow_all_inputs() {
-        let mut command = Command::new("ffmpeg");
-        add_rawvideo_input_args(&mut command, 1920, 1080, 30.0);
-        command.arg("-i").arg("music.m4a");
-        add_stream_mapping_args(&mut command, true);
-
-        let args: Vec<String> = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
-        let music_input = args
-            .windows(2)
-            .position(|pair| pair[0] == "-i" && pair[1] == "music.m4a")
-            .expect("music input should be present");
-        let first_map = args
-            .iter()
-            .position(|arg| arg == "-map")
-            .expect("stream mapping should be present");
-
-        assert!(first_map > music_input + 1);
-        let mappings: Vec<&str> = args[first_map..first_map + 4]
-            .iter()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(mappings, ["-map", "0:v:0", "-map", "1:a:0?"]);
-    }
-
-    #[test]
-    fn typographic_center_uses_advance_and_baseline() {
-        assert_eq!(
-            typographic_glyph_origin((960, 540), 201.0, None, 512.0, -128.0),
-            (859, 732),
-        );
-    }
-
-    #[test]
-    fn zero_advance_mark_is_visually_centered_horizontally() {
-        assert_eq!(
-            typographic_glyph_origin((960, 540), 0.0, Some(-35.0), 512.0, -128.0),
-            (995, 732),
-        );
-    }
-
-    #[test]
-    fn concat_list_uses_ffmpeg_friendly_windows_path() {
-        assert_eq!(
-            concat_file_entry(Path::new(r"C:\render parts\segment-0001.mp4")),
-            "file 'C:/render parts/segment-0001.mp4'\n",
-        );
-    }
-
-    #[test]
-    fn pause_event_adds_frames_without_advancing_the_character() {
-        let mut config = RenderConfig {
-            fps: 1.0,
-            characters: vec![CharEntry {
-                code_point: "U+0041".to_string(),
-                description: String::new(),
-                background_color: None,
-                text_color: None,
-                position: None,
-                duration_frames: Some(3),
-            }],
-            events: vec![Event {
-                frame: 1,
-                event_type: EventType::Pause { duration: 2.0 },
-            }],
-            ..Default::default()
-        };
-
-        for component in &mut config.components {
-            match component {
-                crate::scene::SceneComponent::Glyph(component) => component.enabled = false,
-                crate::scene::SceneComponent::Text(component) => component.enabled = false,
-            }
-        }
-
-        let mut state = initial_render_state(&config);
-        let mut color_index = 0;
-        let mut entry_index = 0;
-        let mut frame_in_char = 0;
-        let mut frame_index = 0;
-        let mut jobs = Vec::new();
-
-        while let Some(job) = next_frame_job(
-            &config,
-            &mut state,
-            &mut color_index,
-            &mut entry_index,
-            &mut frame_in_char,
-            &mut frame_index,
-        ) {
-            jobs.push(job);
-        }
-
-        assert_eq!(jobs.len() as u64, config.total_frames());
-        assert_eq!(jobs.len(), 5);
-    }
-
-    #[test]
-    fn character_overrides_and_component_events_are_resolved_per_frame() {
-        let mut config = RenderConfig::default();
-        let primary_id = config
-            .primary_glyph_component()
-            .expect("default scene has a glyph component")
-            .id
-            .clone();
-        let bottom_id = config
-            .primary_text_component()
-            .expect("default scene has a text component")
-            .id
-            .clone();
-        config.characters = vec![CharEntry {
-            code_point: "U+0041".to_string(),
-            description: String::new(),
-            background_color: None,
-            text_color: Some(Color {
-                r: 1,
-                g: 2,
-                b: 3,
-                a: 4,
-            }),
-            position: Some(Position { x: 0.2, y: 0.3 }),
-            duration_frames: Some(1),
-        }];
-        config.events = vec![
-            Event {
-                frame: 0,
-                event_type: EventType::SetComponentColor {
-                    element_id: bottom_id.clone(),
-                    color: Color {
-                        r: 5,
-                        g: 6,
-                        b: 7,
-                        a: 8,
-                    },
-                },
-            },
-            Event {
-                frame: 0,
-                event_type: EventType::SetComponentPosition {
-                    element_id: bottom_id.clone(),
-                    position: Position { x: 0.7, y: 0.8 },
-                },
-            },
-        ];
-
-        let mut state = initial_render_state(&config);
-        let mut color_index = 0;
-        let mut entry_index = 0;
-        let mut frame_in_char = 0;
-        let mut frame_index = 0;
-        let job = next_frame_job(
-            &config,
-            &mut state,
-            &mut color_index,
-            &mut entry_index,
-            &mut frame_in_char,
-            &mut frame_index,
-        )
-        .unwrap();
-
-        let primary = job.component_states.get(&primary_id).unwrap();
-        let bottom = job.component_states.get(&bottom_id).unwrap();
-        assert_eq!(primary.color.r, 1);
-        assert_eq!(primary.position.x, 0.2);
-        assert_eq!(bottom.color.r, 5);
-        assert_eq!(bottom.position.x, 0.7);
-    }
-
-    #[test]
-    fn disabled_text_layers_do_not_require_fonts_for_preview() {
-        let mut config = RenderConfig {
-            resolution: (8, 8),
-            characters: vec![CharEntry {
-                code_point: "U+0041".to_string(),
-                description: String::new(),
-                background_color: None,
-                text_color: None,
-                position: None,
-                duration_frames: Some(1),
-            }],
-            ..Default::default()
-        };
-
-        for component in &mut config.components {
-            match component {
-                crate::scene::SceneComponent::Glyph(component) => {
-                    component.enabled = false;
-                    component.fonts.clear();
-                }
-                crate::scene::SceneComponent::Text(component) => {
-                    component.enabled = false;
-                    component.fonts.clear();
-                }
-            }
-        }
-
-        assert!(!render_frame_png(&config, 0, 8).unwrap().is_empty());
-    }
-}
+#[path = "../tests/unit/renderer.rs"]
+mod tests;

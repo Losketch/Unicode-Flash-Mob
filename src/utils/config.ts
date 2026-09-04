@@ -3,6 +3,9 @@ import type {
   Event,
   FontConfig,
   GlyphComponent,
+  GroupComponent,
+  ImageComponent,
+  ProgressBarComponent,
   RenderConfig,
   RenderConfigPath,
   SceneComponent,
@@ -18,6 +21,8 @@ export interface RgbaColor {
 }
 
 export const APP_VERSION: string = pkg.version;
+
+const CURRENT_SCHEMA_VERSION = 4;
 
 export const clampByte = (value: number): number =>
   Math.max(0, Math.min(255, Number.isFinite(value) ? value : 0));
@@ -139,6 +144,56 @@ const normalizeSceneComponent = (component: SceneComponent): SceneComponent => {
       max_width: Number.isFinite(component.max_width) ? component.max_width : 0,
     };
   }
+  if (component.type === "image") {
+    const image = component as ImageComponent;
+    return {
+      ...image,
+      enabled: image.enabled !== false,
+      source: image.source ?? "",
+      position: image.position ?? { x: 0.5, y: 0.5 },
+      size: image.size ?? { width: 0.25, height: 0.25 },
+      opacity: Number.isFinite(image.opacity) ? image.opacity : 1,
+      fit: image.fit ?? "contain",
+    };
+  }
+  if (component.type === "progress_bar") {
+    const progress = component as ProgressBarComponent;
+    return {
+      ...progress,
+      enabled: progress.enabled !== false,
+      position: progress.position ?? { x: 0.5, y: 0.9 },
+      size: progress.size ?? { width: 0.6, height: 0.04 },
+      progress: Number.isFinite(progress.progress) ? progress.progress : 0,
+      background_color: progress.background_color ?? { r: 255, g: 255, b: 255, a: 96 },
+      fill_color: progress.fill_color ?? { r: 255, g: 255, b: 255, a: 224 },
+      direction: progress.direction ?? "left_to_right",
+      border:
+        progress.border && typeof progress.border === "object"
+          ? {
+              color: progress.border.color ?? { r: 255, g: 255, b: 255, a: 255 },
+              width: Number.isFinite(progress.border.width)
+                ? Math.max(1, Math.trunc(progress.border.width))
+                : 1,
+            }
+          : null,
+    };
+  }
+
+  if (component.type === "group") {
+    const group = component as GroupComponent;
+    return {
+      ...group,
+      enabled: group.enabled !== false,
+      transform: {
+        translation: group.transform?.translation ?? { x: 0, y: 0 },
+        scale: group.transform?.scale ?? { x: 1, y: 1 },
+        rotation: Number.isFinite(group.transform?.rotation) ? group.transform.rotation : 0,
+        anchor: group.transform?.anchor ?? { x: 0.5, y: 0.5 },
+      },
+      opacity: Number.isFinite(group.opacity) ? group.opacity : 1,
+      children: (group.children ?? []).map(normalizeSceneComponent),
+    };
+  }
 
   // Preserve future component types verbatim if a newer backend writes them.
   return component;
@@ -147,7 +202,7 @@ const normalizeSceneComponent = (component: SceneComponent): SceneComponent => {
 /**
  * Normalize configuration JSON loaded outside Tauri. Desktop loading uses the
  * Rust migration path; this keeps browser file import and persisted editor state
- * compatible with the same v3 -> v4 scene transition.
+ * compatible with the same published v3 -> v4 scene transition.
  */
 export function normalizeRenderConfig(
   input: RenderConfig | LegacyRenderConfig
@@ -197,7 +252,7 @@ export function normalizeRenderConfig(
 
   return {
     ...(current as RenderConfig),
-    schema_version: Math.max(Number(raw.schema_version) || 0, 4),
+    schema_version: Math.max(Number(raw.schema_version) || 0, CURRENT_SCHEMA_VERSION),
     components,
     content_templates: raw.content_templates ?? {},
     events: (raw.events ?? []).map(normalizeEvent),
@@ -230,11 +285,17 @@ export function mergeExtractedConfig(
 ): RenderConfig {
   const extractedPrimary = getPrimaryGlyphComponent(extracted);
   const currentPrimary = getPrimaryGlyphComponent(current);
-  const components = current.components.map((component) =>
-    component === currentPrimary && extractedPrimary
-      ? { ...component, fonts: extractedPrimary.fonts }
-      : component
-  );
+  const replacePrimaryFonts = (components: SceneComponent[]): SceneComponent[] =>
+    components.map((component) => {
+      if (component === currentPrimary && extractedPrimary && component.type === "glyph") {
+        return { ...component, fonts: extractedPrimary.fonts };
+      }
+      if (component.type === "group") {
+        return { ...component, children: replacePrimaryFonts(component.children) };
+      }
+      return component;
+    });
+  const components = replacePrimaryFonts(current.components);
 
   return {
     ...current,

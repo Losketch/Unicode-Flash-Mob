@@ -14,6 +14,31 @@ export interface Position {
 
 export type TextAlign = "left" | "center" | "right";
 
+export interface Scale2D {
+  x: number;
+  y: number;
+}
+
+export interface Transform2D {
+  translation: Position;
+  scale: Scale2D;
+  rotation: number;
+  anchor: Position;
+}
+
+export interface Size {
+  width: number;
+  height: number;
+}
+
+export type ImageFit = "contain" | "cover" | "stretch";
+
+export type ProgressDirection =
+  | "left_to_right"
+  | "right_to_left"
+  | "top_to_bottom"
+  | "bottom_to_top";
+
 export type AnimationCurve =
   | "linear"
   | "ease_in"
@@ -54,11 +79,67 @@ export interface TextComponent {
   max_width: number;
 }
 
-export type SceneComponent = GlyphComponent | TextComponent;
+export interface ImageComponent {
+  type: "image";
+  id: string;
+  enabled: boolean;
+  source: string;
+  position: Position;
+  size: Size;
+  opacity: number;
+  fit: ImageFit;
+}
+
+export interface ProgressBarBorder {
+  color: Color;
+  width: number;
+}
+
+export interface ProgressBarComponent {
+  type: "progress_bar";
+  id: string;
+  enabled: boolean;
+  position: Position;
+  size: Size;
+  progress: number;
+  background_color: Color;
+  fill_color: Color;
+  direction: ProgressDirection;
+  border: ProgressBarBorder | null;
+}
+
+
+export interface GroupComponent {
+  type: "group";
+  id: string;
+  enabled: boolean;
+  transform: Transform2D;
+  opacity: number;
+  children: SceneComponent[];
+}
+
+export type SceneComponent =
+  | GlyphComponent
+  | TextComponent
+  | ImageComponent
+  | ProgressBarComponent
+  | GroupComponent;
 
 export type ContentTemplate =
   | { type: "text"; value: string }
   | { type: "external"; executable: string; args: string[] };
+
+export type AnimatableProperty =
+  | "position_x"
+  | "position_y"
+  | "scale_x"
+  | "scale_y"
+  | "rotation"
+  | "opacity"
+  | "color"
+  | "progress";
+
+export type ComponentPropertyValue = number | Color;
 
 export type EventType =
   | { set_background_color: { color: Color } }
@@ -74,6 +155,23 @@ export type EventType =
         element_id: string;
         start_position: Position;
         end_position: Position;
+        duration: number;
+        curve: AnimationCurve;
+      };
+    }
+  | {
+      set_component_property: {
+        element_id: string;
+        property: AnimatableProperty;
+        value: ComponentPropertyValue;
+      };
+    }
+  | {
+      animate_component_property: {
+        element_id: string;
+        property: AnimatableProperty;
+        start_value: ComponentPropertyValue;
+        end_value: ComponentPropertyValue;
         duration: number;
         curve: AnimationCurve;
       };
@@ -150,9 +248,18 @@ type DeepConfigPath<T> = T extends AtomicConfigValue | readonly unknown[]
 /** Dot-separated paths accepted by the configuration editor. */
 export type RenderConfigPath = DeepConfigPath<RenderConfig>;
 
+const findPrimaryGlyph = (components: SceneComponent[]): GlyphComponent | undefined => {
+  for (const component of components) {
+    if (component.type === "glyph") return component;
+    if (component.type === "group") {
+      const nested = findPrimaryGlyph(component.children);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
+};
+
 export const getPrimaryGlyphComponent = (
   config: RenderConfig | null | undefined
 ): GlyphComponent | undefined =>
-  config?.components?.find(
-    (component): component is GlyphComponent => component.type === "glyph"
-  );
+  config?.components ? findPrimaryGlyph(config.components) : undefined;

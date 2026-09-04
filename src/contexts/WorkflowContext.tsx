@@ -74,7 +74,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const setConfig = useCallback((config: RenderConfig) => {
-    setState((prev) => ({ ...prev, config }));
+    setState((prev) => ({ ...prev, config: normalizeRenderConfig(config) }));
   }, []);
 
   const setActiveStep = useCallback((activeStep: number) => {

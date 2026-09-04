@@ -1,0 +1,206 @@
+{
+  "schema_version": 4,
+  "output_path": "output/group-transform.mp4",
+  "resolution": [
+    640,
+    360
+  ],
+  "fps": 30.0,
+  "background_colors": [
+    {
+      "r": 28,
+      "g": 31,
+      "b": 42,
+      "a": 255
+    }
+  ],
+  "dynamic_background": false,
+  "background_color": {
+    "r": 28,
+    "g": 31,
+    "b": 42,
+    "a": 255
+  },
+  "fixed_background": true,
+  "components": [
+    {
+      "type": "group",
+      "id": "card_group",
+      "enabled": true,
+      "transform": {
+        "translation": {
+          "x": 0.06,
+          "y": -0.02
+        },
+        "scale": {
+          "x": 0.92,
+          "y": 0.92
+        },
+        "rotation": 8.0,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      "opacity": 0.95,
+      "children": [
+        {
+          "type": "image",
+          "id": "image_1",
+          "enabled": true,
+          "source": "../assets/scene-card.png",
+          "position": {
+            "x": 0.5,
+            "y": 0.48
+          },
+          "size": {
+            "width": 0.52,
+            "height": 0.56
+          },
+          "opacity": 0.9,
+          "fit": "contain"
+        },
+        {
+          "type": "progress_bar",
+          "id": "progress_1",
+          "enabled": true,
+          "position": {
+            "x": 0.5,
+            "y": 0.84
+          },
+          "size": {
+            "width": 0.7,
+            "height": 0.045
+          },
+          "progress": 0.65,
+          "background_color": {
+            "r": 255,
+            "g": 255,
+            "b": 255,
+            "a": 80
+          },
+          "fill_color": {
+            "r": 255,
+            "g": 255,
+            "b": 255,
+            "a": 230
+          },
+          "direction": "left_to_right",
+          "border": {
+            "color": {
+              "r": 255,
+              "g": 0,
+              "b": 0,
+              "a": 255
+            },
+            "width": 4
+          }
+        },
+        {
+          "type": "glyph",
+          "id": "main",
+          "enabled": true,
+          "content": "{glyph}",
+          "position": {
+            "x": 0.5,
+            "y": 0.46
+          },
+          "color": {
+            "r": 10,
+            "g": 10,
+            "b": 10,
+            "a": 255
+          },
+          "fonts": [
+            "assets/fonts/NotoSansTest-Regular.ttf"
+          ],
+          "font": {
+            "size": 160.0,
+            "font_feature_settings": {},
+            "font_variation_settings": {},
+            "font_optical_sizing": true
+          },
+          "overlay_combining_mark": true
+        },
+        {
+          "type": "group",
+          "id": "label_group",
+          "enabled": true,
+          "transform": {
+            "translation": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "rotation": -8.0,
+            "anchor": {
+              "x": 0.5,
+              "y": 0.5
+            }
+          },
+          "opacity": 1.0,
+          "children": [
+            {
+              "type": "text",
+              "id": "bottom",
+              "enabled": true,
+              "content": "Group Transform — {code}",
+              "position": {
+                "x": 0.05,
+                "y": 0.96
+              },
+              "color": {
+                "r": 255,
+                "g": 255,
+                "b": 255,
+                "a": 255
+              },
+              "fonts": [
+                "assets/fonts/IBMPlexSans-Bold.ttf"
+              ],
+              "font": {
+                "size": 24.0,
+                "font_feature_settings": {},
+                "font_variation_settings": {},
+                "font_optical_sizing": true
+              },
+              "align": "left",
+              "wrap": false,
+              "max_width": 0.9
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "content_templates": {},
+  "text_x_offset": 0,
+  "text_y_offset": 0,
+  "overlay_enabled": true,
+  "characters": [
+    {
+      "code_point": "U+0041",
+      "description": "Nested group transform fixture",
+      "background_color": null,
+      "text_color": null,
+      "position": null,
+      "duration_frames": 30
+    }
+  ],
+  "events": [],
+  "ffmpeg": {
+    "path": "ffmpeg",
+    "crf": 18,
+    "preset": "fast",
+    "encoder": "auto",
+    "pixel_format": "yuv420p",
+    "parallel_workers": 0,
+    "max_inflight_frames": 2,
+    "encoding_processes": 1
+  },
+  "music_path": null,
+  "title": "Group Transform Fixture"
+}

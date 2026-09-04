@@ -10,7 +10,6 @@ tauri-build = { version = "2", optional = true, features = [] }
 
 [features]
 default = ["gui"]
-cli = []
 gui = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-build", "dep:tokio"]
 
 [dependencies]

@@ -1,20 +1,14 @@
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Alert,
+  Box,
   Button,
-  Chip,
-  Divider,
-  FormControl,
-  FormControlLabel,
   Grid,
   IconButton,
-  InputLabel,
+  Menu,
   MenuItem,
   Paper,
-  Select,
   Stack,
-  Switch,
-  TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -22,389 +16,277 @@ import AddIcon from "@mui/icons-material/Add";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import ColorField from "./ColorField";
-import FontList from "./FontList";
-import JsonEditor from "./JsonEditorField";
-import type {
-  FontConfig,
-  GlyphComponent,
-  SceneComponent,
-  TextComponent,
-} from "../types/config";
+import ComponentInspector from "./ComponentInspector";
+import SceneTree from "./SceneTree";
+import type { SceneComponent } from "../types/config";
+import {
+  appendComponent,
+  collectGroupIds,
+  createSceneComponent,
+  findComponentById,
+  findComponentPath,
+  findParentId,
+  findSiblingPosition,
+  moveComponentById,
+  removeComponentById,
+  type SceneComponentType,
+  updateComponentById,
+} from "./sceneComponentUtils";
 
 interface SceneComponentsEditorProps {
   components: SceneComponent[];
   onChange: (components: SceneComponent[]) => void;
 }
 
-const defaultFont = (size: number): FontConfig => ({
-  size,
-  font_feature_settings: {},
-  font_variation_settings: {},
-  font_optical_sizing: true,
-});
-
-const asNumberRecord = (value: unknown): Record<string, number> => {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    Object.values(value).some((entry) => typeof entry !== "number")
-  ) {
-    throw new TypeError("Expected a JSON object whose values are numbers");
-  }
-
-  return value as Record<string, number>;
-};
-
-const nextId = (components: SceneComponent[], prefix: string): string => {
-  const used = new Set(components.map((component) => component.id));
-  let index = 1;
-  while (used.has(`${prefix}_${index}`)) index += 1;
-  return `${prefix}_${index}`;
-};
-
-const createGlyphComponent = (components: SceneComponent[]): GlyphComponent => ({
-  type: "glyph",
-  id: nextId(components, "glyph"),
-  enabled: false,
-  content: "{glyph}",
-  position: { x: 0.5, y: 0.5 },
-  color: { r: 0, g: 0, b: 0, a: 128 },
-  fonts: [],
-  font: defaultFont(512),
-  overlay_combining_mark: true,
-});
-
-const createTextComponent = (components: SceneComponent[]): TextComponent => ({
-  type: "text",
-  id: nextId(components, "text"),
-  enabled: false,
-  content: "{char}",
-  position: { x: 0.05, y: 0.1 },
-  color: { r: 0, g: 0, b: 0, a: 192 },
-  fonts: [],
-  font: defaultFont(42),
-  align: "left",
-  wrap: true,
-  max_width: 0.9,
-});
-
 const SceneComponentsEditor = ({
   components,
   onChange,
 }: SceneComponentsEditorProps) => {
   const { t } = useTranslation("config");
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => components[0]?.id ?? null
+  );
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+    () => collectGroupIds(components)
+  );
+  const [addMenuAnchor, setAddMenuAnchor] = useState<HTMLElement | null>(null);
 
-  const updateAt = (index: number, component: SceneComponent) => {
-    const next = [...components];
-    next[index] = component;
+  const selectedComponent = useMemo(
+    () => findComponentById(components, selectedId),
+    [components, selectedId]
+  );
+  const selectedPath = useMemo(
+    () =>
+      selectedId !== null ? findComponentPath(components, selectedId) ?? [] : [],
+    [components, selectedId]
+  );
+  const siblingPosition = useMemo(
+    () =>
+      selectedId !== null ? findSiblingPosition(components, selectedId) : undefined,
+    [components, selectedId]
+  );
+
+  useEffect(() => {
+    if (selectedId !== null && findComponentById(components, selectedId)) return;
+    setSelectedId(components[0]?.id ?? null);
+  }, [components, selectedId]);
+
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const updateSelected = (next: SceneComponent) => {
+    if (selectedId === null) return;
+    const previousId = selectedId;
+    onChange(updateComponentById(components, previousId, next));
+    if (next.id !== previousId) {
+      setSelectedId(next.id);
+      setExpandedIds((current) => {
+        if (!current.has(previousId)) return current;
+        const updated = new Set(current);
+        updated.delete(previousId);
+        updated.add(next.id);
+        return updated;
+      });
+    }
+  };
+
+  const toggleEnabled = (id: string, enabled: boolean) => {
+    const component = findComponentById(components, id);
+    if (!component) return;
+    onChange(updateComponentById(components, id, { ...component, enabled }));
+  };
+
+  const addComponent = (type: SceneComponentType) => {
+    const targetGroupId = selectedComponent?.type === "group" ? selectedComponent.id : null;
+    const component = createSceneComponent(type, components);
+    onChange(appendComponent(components, targetGroupId, component));
+    setSelectedId(component.id);
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (targetGroupId) next.add(targetGroupId);
+      if (component.type === "group") next.add(component.id);
+      return next;
+    });
+    setAddMenuAnchor(null);
+  };
+
+  const moveSelected = (direction: -1 | 1) => {
+    if (selectedId === null) return;
+    onChange(moveComponentById(components, selectedId, direction));
+  };
+
+  const removeSelected = () => {
+    if (selectedId === null) return;
+    const parentId = findParentId(components, selectedId);
+    const next = removeComponentById(components, selectedId);
     onChange(next);
+    setSelectedId(
+      typeof parentId === "string" ? parentId : next[0]?.id ?? null
+    );
   };
 
-  const removeAt = (index: number) => {
-    onChange(components.filter((_, current) => current !== index));
-  };
+  const addTargetLabel =
+    selectedComponent?.type === "group"
+      ? t("addTargetSelectedGroup", { id: selectedComponent.id })
+      : t("addTargetSceneRoot");
 
-  const move = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= components.length) return;
-    const next = [...components];
-    [next[index], next[target]] = [next[target], next[index]];
-    onChange(next);
-  };
-
-  const updateFont = (
-    index: number,
-    component: SceneComponent,
-    patch: Partial<FontConfig>
-  ) => updateAt(index, { ...component, font: { ...component.font, ...patch } });
+  const canMoveUp = Boolean(siblingPosition && siblingPosition.index > 0);
+  const canMoveDown = Boolean(
+    siblingPosition && siblingPosition.index < siblingPosition.count - 1
+  );
 
   return (
     <Stack spacing={2}>
       <Stack
-        direction={{ xs: "column", sm: "row" }}
+        direction={{ xs: "column", md: "row" }}
         spacing={1}
-        alignItems={{ xs: "stretch", sm: "center" }}
+        alignItems={{ xs: "stretch", md: "center" }}
         justifyContent="space-between"
       >
         <Stack spacing={0.25}>
-          <Typography variant="subtitle1">{t("sceneComponents")}</Typography>
           <Typography variant="body2" color="text.secondary">
             {t("componentOrderHint")}
           </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {addTargetLabel}
+          </Typography>
         </Stack>
-        <Stack direction="row" spacing={1}>
+
+        <Stack direction="row" spacing={0.5} alignItems="center">
           <Button
             size="small"
             variant="outlined"
             startIcon={<AddIcon />}
-            onClick={() => onChange([...components, createGlyphComponent(components)])}
+            onClick={(event) => setAddMenuAnchor(event.currentTarget)}
           >
-            {t("addGlyphComponent")}
+            {t("addComponent")}
           </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={() => onChange([...components, createTextComponent(components)])}
+          <Menu
+            anchorEl={addMenuAnchor}
+            open={Boolean(addMenuAnchor)}
+            onClose={() => setAddMenuAnchor(null)}
           >
-            {t("addTextComponent")}
-          </Button>
+            <MenuItem onClick={() => addComponent("glyph")}>
+              {t("addGlyphComponent")}
+            </MenuItem>
+            <MenuItem onClick={() => addComponent("text")}>
+              {t("addTextComponent")}
+            </MenuItem>
+            <MenuItem onClick={() => addComponent("image")}>
+              {t("addImageComponent")}
+            </MenuItem>
+            <MenuItem onClick={() => addComponent("progress_bar")}>
+              {t("addProgressBarComponent")}
+            </MenuItem>
+            <MenuItem onClick={() => addComponent("group")}>
+              {t("addGroupComponent")}
+            </MenuItem>
+          </Menu>
+
+          <Tooltip title={t("moveComponentUp")}>
+            <span>
+              <IconButton
+                size="small"
+                disabled={!canMoveUp}
+                onClick={() => moveSelected(-1)}
+              >
+                <ArrowUpwardIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title={t("moveComponentDown")}>
+            <span>
+              <IconButton
+                size="small"
+                disabled={!canMoveDown}
+                onClick={() => moveSelected(1)}
+              >
+                <ArrowDownwardIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title={t("removeComponent")}>
+            <span>
+              <IconButton
+                size="small"
+                color="error"
+                disabled={!selectedComponent}
+                onClick={removeSelected}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Stack>
       </Stack>
 
-      {components.map((component, index) => (
-        <Paper key={index} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-          <Stack spacing={2}>
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <Chip
-                size="small"
-                label={
-                  component.type === "glyph"
-                    ? t("glyphComponent")
-                    : t("textComponent")
-                }
-              />
-              <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
-                {component.id || t("unnamedComponent")}
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={4} lg={3}>
+          <Paper
+            variant="outlined"
+            sx={{
+              height: { md: 620 },
+              maxHeight: { xs: 360, md: 620 },
+              overflow: "auto",
+              p: 1,
+              borderRadius: 2,
+            }}
+          >
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ px: 1, pt: 0.5 }}>
+                {t("sceneTree")}
               </Typography>
-              <Tooltip title={t("moveComponentUp")}>
-                <span>
-                  <IconButton size="small" disabled={index === 0} onClick={() => move(index, -1)}>
-                    <ArrowUpwardIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title={t("moveComponentDown")}>
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={index === components.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    <ArrowDownwardIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title={t("removeComponent")}>
-                <IconButton size="small" onClick={() => removeAt(index)}>
-                  <DeleteOutlineIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-
-            <Grid container spacing={2} sx={{ width: "100%", margin: 0 }}>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  label={t("elementId")}
-                  value={component.id}
-                  onChange={(event) =>
-                    updateAt(index, { ...component, id: event.target.value })
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} md={8}>
-                <TextField
-                  fullWidth
-                  label={t("textContent")}
-                  value={component.content}
-                  helperText={
-                    component.type === "glyph"
-                      ? t("glyphContentHint")
-                      : t("textContentHint")
-                  }
-                  onChange={(event) =>
-                    updateAt(index, { ...component, content: event.target.value })
-                  }
-                />
-              </Grid>
-              <Grid item xs={6} md={2}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label={t("positionX")}
-                  value={component.position.x}
-                  onChange={(event) =>
-                    updateAt(index, {
-                      ...component,
-                      position: { ...component.position, x: Number(event.target.value) },
-                    })
-                  }
-                />
-              </Grid>
-              <Grid item xs={6} md={2}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label={t("positionY")}
-                  value={component.position.y}
-                  onChange={(event) =>
-                    updateAt(index, {
-                      ...component,
-                      position: { ...component.position, y: Number(event.target.value) },
-                    })
-                  }
-                />
-              </Grid>
-              <Grid item xs={6} md={2}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label={t("fontSize")}
-                  value={component.font.size}
-                  onChange={(event) =>
-                    updateFont(index, component, {
-                      size: Number(event.target.value) || 1,
-                    })
-                  }
-                />
-              </Grid>
-              {component.type === "text" && (
-                <>
-                  <Grid item xs={6} md={3}>
-                    <FormControl fullWidth>
-                      <InputLabel>{t("textAlign")}</InputLabel>
-                      <Select
-                        label={t("textAlign")}
-                        value={component.align}
-                        onChange={(event) =>
-                          updateAt(index, {
-                            ...component,
-                            align: event.target.value as TextComponent["align"],
-                          })
-                        }
-                      >
-                        <MenuItem value="left">{t("alignLeft")}</MenuItem>
-                        <MenuItem value="center">{t("alignCenter")}</MenuItem>
-                        <MenuItem value="right">{t("alignRight")}</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={6} md={3}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      label={t("maxWidth")}
-                      value={component.max_width}
-                      onChange={(event) =>
-                        updateAt(index, {
-                          ...component,
-                          max_width: Number(event.target.value),
-                        })
-                      }
-                    />
-                  </Grid>
-                </>
-              )}
-            </Grid>
-
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={component.enabled}
-                    onChange={(event) =>
-                      updateAt(index, { ...component, enabled: event.target.checked })
-                    }
-                  />
-                }
-                label={t("elementEnabled")}
-              />
-              {component.type === "text" ? (
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={component.wrap}
-                      onChange={(event) =>
-                        updateAt(index, { ...component, wrap: event.target.checked })
-                      }
-                    />
-                  }
-                  label={t("textWrap")}
-                />
-              ) : (
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={component.overlay_combining_mark}
-                      onChange={(event) =>
-                        updateAt(index, {
-                          ...component,
-                          overlay_combining_mark: event.target.checked,
-                        })
-                      }
-                    />
-                  }
-                  label={t("overlayCombiningMark")}
-                />
-              )}
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={component.font.font_optical_sizing !== false}
-                    onChange={(event) =>
-                      updateFont(index, component, {
-                        font_optical_sizing: event.target.checked,
-                      })
-                    }
-                  />
-                }
-                label={t("fontOpticalSizing")}
+              <SceneTree
+                components={components}
+                selectedId={selectedId}
+                expandedIds={expandedIds}
+                onSelect={setSelectedId}
+                onToggleExpanded={toggleExpanded}
+                onToggleEnabled={toggleEnabled}
               />
             </Stack>
+          </Paper>
+        </Grid>
 
-            <ColorField
-              label={t("textColor")}
-              value={component.color}
-              onChange={(color) => updateAt(index, { ...component, color })}
-            />
-
-            <FontList
-              fonts={component.fonts}
-              onChange={(fonts) => updateAt(index, { ...component, fonts })}
-              label={t("componentFonts")}
-              multiple
-            />
-            {component.fonts.length === 0 && (
-              <Alert severity={component.enabled ? "error" : "warning"}>
-                {t("componentMissingFont")}
-              </Alert>
+        <Grid item xs={12} md={8} lg={9}>
+          <Paper
+            variant="outlined"
+            sx={{
+              minHeight: { xs: 320, md: 620 },
+              p: { xs: 1.5, sm: 2 },
+              borderRadius: 2,
+            }}
+          >
+            {selectedComponent ? (
+              <ComponentInspector
+                component={selectedComponent}
+                path={selectedPath}
+                onChange={updateSelected}
+              />
+            ) : (
+              <Box
+                sx={{
+                  minHeight: 280,
+                  display: "grid",
+                  placeItems: "center",
+                  textAlign: "center",
+                  px: 2,
+                }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  {t("noComponentSelected")}
+                </Typography>
+              </Box>
             )}
-
-            <Divider />
-            <Grid container spacing={2} sx={{ width: "100%", margin: 0 }}>
-              <Grid item xs={12} md={6}>
-                <JsonEditor
-                  label={t("fontFeatureSettings")}
-                  value={component.font.font_feature_settings}
-                  onCommit={(value) =>
-                    updateFont(index, component, {
-                      font_feature_settings: asNumberRecord(value),
-                    })
-                  }
-                  invalidMessage={t("invalidJson")}
-                  hint={t("fontFeatureHint")}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <JsonEditor
-                  label={t("fontVariationSettings")}
-                  value={component.font.font_variation_settings}
-                  onCommit={(value) =>
-                    updateFont(index, component, {
-                      font_variation_settings: asNumberRecord(value),
-                    })
-                  }
-                  invalidMessage={t("invalidJson")}
-                  hint={t("fontVariationHint")}
-                />
-              </Grid>
-            </Grid>
-          </Stack>
-        </Paper>
-      ))}
+          </Paper>
+        </Grid>
+      </Grid>
     </Stack>
   );
 };

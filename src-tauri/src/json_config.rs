@@ -1,7 +1,7 @@
 use crate::content_template::ContentTemplate;
 use crate::scene::{
-    Color, FontConfig, GlyphComponent, GlyphSelector, Position, SceneComponent, TextAlign,
-    TextComponent,
+    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, GlyphComponent, GlyphSelector,
+    Position, SceneComponent, TextAlign, TextComponent,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -19,6 +19,7 @@ pub const DEFAULT_OUTPUT_DIR: &str = "./output";
 
 static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+#[cfg(feature = "gui")]
 pub(crate) fn set_resource_dir(path: PathBuf) {
     let _ = RESOURCE_DIR.set(path);
 }
@@ -42,6 +43,26 @@ pub fn asset_path(relative: impl AsRef<Path>) -> PathBuf {
 
     if let Ok(executable) = std::env::current_exe() {
         if let Some(executable_dir) = executable.parent() {
+            #[cfg(target_os = "linux")]
+            if let Some(executable_name) = executable.file_name() {
+                let mut linux_resource_dirs = vec![
+                    PathBuf::from("/usr/lib").join(executable_name),
+                    executable_dir.join("../lib").join(executable_name),
+                ];
+                if let Some(app_dir) = std::env::var_os("APPDIR") {
+                    linux_resource_dirs.insert(
+                        0,
+                        PathBuf::from(app_dir).join("usr/lib").join(executable_name),
+                    );
+                }
+                for resource_dir in linux_resource_dirs {
+                    let bundled = resource_dir.join("assets").join(relative);
+                    if bundled.exists() {
+                        return bundled;
+                    }
+                }
+            }
+
             for bundled in [
                 executable_dir
                     .join("resources")
@@ -62,6 +83,71 @@ pub fn asset_path(relative: impl AsRef<Path>) -> PathBuf {
 
 fn bundled_asset_reference(relative: &Path) -> PathBuf {
     Path::new("assets").join(relative)
+}
+
+fn is_bundled_asset_reference(path: &Path) -> bool {
+    path.components().next().is_some_and(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("assets")
+    })
+}
+
+fn is_bare_command_reference(path: &Path) -> bool {
+    !path.is_absolute() && path.components().count() == 1
+}
+
+fn config_base_dir(path: &Path) -> PathBuf {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if parent.is_absolute() {
+        parent.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(parent))
+            .unwrap_or_else(|_| parent.to_path_buf())
+    }
+}
+
+fn resolve_config_reference(
+    path: &Path,
+    base_dir: &Path,
+    preserve_bundled: bool,
+    preserve_bare_command: bool,
+) -> PathBuf {
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || (preserve_bundled && is_bundled_asset_reference(path))
+        || (preserve_bare_command && is_bare_command_reference(path))
+    {
+        return path.to_path_buf();
+    }
+    base_dir.join(path)
+}
+
+fn portable_config_reference(
+    path: &Path,
+    base_dir: &Path,
+    preserve_bundled: bool,
+    preserve_bare_command: bool,
+) -> PathBuf {
+    if path.as_os_str().is_empty()
+        || (preserve_bundled && is_bundled_asset_reference(path))
+        || (preserve_bare_command && is_bare_command_reference(path))
+    {
+        return path.to_path_buf();
+    }
+    if path.is_absolute() {
+        if let Ok(relative) = path.strip_prefix(base_dir) {
+            if !relative.as_os_str().is_empty() {
+                return relative.to_path_buf();
+            }
+        }
+    }
+    path.to_path_buf()
 }
 
 fn portable_asset_reference(path: &Path) -> PathBuf {
@@ -131,6 +217,38 @@ pub(crate) fn bundled_font_paths(relative: impl AsRef<Path>) -> Vec<PathBuf> {
         .then(|| bundled_asset_reference(relative))
         .into_iter()
         .collect()
+}
+
+fn resolve_component_config_paths(components: &mut [SceneComponent], base_dir: &Path) {
+    for component in components {
+        if let Some(fonts) = component.fonts_mut() {
+            for font in fonts {
+                *font = resolve_config_reference(font, base_dir, true, false);
+            }
+        }
+        if let Some(source) = component.image_source_mut() {
+            *source = resolve_config_reference(source, base_dir, true, false);
+        }
+        if let SceneComponent::Group(group) = component {
+            resolve_component_config_paths(&mut group.children, base_dir);
+        }
+    }
+}
+
+fn portable_component_config_paths(components: &mut [SceneComponent], base_dir: &Path) {
+    for component in components {
+        if let Some(fonts) = component.fonts_mut() {
+            for font in fonts {
+                *font = portable_config_reference(font, base_dir, true, false);
+            }
+        }
+        if let Some(source) = component.image_source_mut() {
+            *source = portable_config_reference(source, base_dir, true, false);
+        }
+        if let SceneComponent::Group(group) = component {
+            portable_component_config_paths(&mut group.children, base_dir);
+        }
+    }
 }
 
 fn default_glyph_component() -> GlyphComponent {
@@ -237,6 +355,19 @@ pub enum EventType {
         element_id: String,
         start_position: Position,
         end_position: Position,
+        duration: f64,
+        curve: AnimationCurve,
+    },
+    SetComponentProperty {
+        element_id: String,
+        property: AnimatableProperty,
+        value: ComponentPropertyValue,
+    },
+    AnimateComponentProperty {
+        element_id: String,
+        property: AnimatableProperty,
+        start_value: ComponentPropertyValue,
+        end_value: ComponentPropertyValue,
         duration: f64,
         curve: AnimationCurve,
     },
@@ -450,18 +581,6 @@ impl CharEntry {
         }
     }
 
-    pub fn glyph_specs(&self) -> Vec<GlyphSpec> {
-        let specs = parse_glyph_specs(self.code_point.trim());
-        if specs.is_empty() {
-            vec![GlyphSpec {
-                selector: GlyphSelector::CodePoint(0),
-                font_index: None,
-            }]
-        } else {
-            specs
-        }
-    }
-
     /// Unicode text represented by the current selector expression. Explicit
     /// glyph-name/index selectors have no Unicode scalar and are omitted.
     pub fn selected_unicode_text(&self) -> String {
@@ -477,24 +596,6 @@ impl CharEntry {
             self.code_point.clone()
         } else {
             selected
-        }
-    }
-
-    pub fn code_point_value(&self) -> u32 {
-        let s = self.code_point.trim();
-        if let Some(GlyphSpec {
-            selector: GlyphSelector::CodePoint(value),
-            ..
-        }) = parse_glyph_specs(s).into_iter().next()
-        {
-            return value;
-        }
-        if let Some(hex) = s.strip_prefix("U+").or_else(|| s.strip_prefix("u+")) {
-            u32::from_str_radix(hex, 16).unwrap_or(0)
-        } else if let Some(stripped) = s.strip_prefix("0x") {
-            u32::from_str_radix(stripped, 16).unwrap_or(0)
-        } else {
-            u32::from_str_radix(s, 16).unwrap_or(0)
         }
     }
 
@@ -543,12 +644,11 @@ impl Default for FfmpegConfig {
     }
 }
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 const LEGACY_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
-// Configurations written before schema v4 had no schema_version field. Using
-// v3 as the deserialization default lets us distinguish those files from an
-// intentional v4 scene with an empty `components` array.
+// v3 is the published fixed-slot schema that predates the stable v4 scene model.
+// Configurations without schema metadata are treated as v3 input for migration.
 fn default_deserialized_schema_version() -> u32 {
     LEGACY_SCHEMA_VERSION
 }
@@ -595,7 +695,7 @@ pub struct RenderConfig {
     )]
     pub(crate) legacy_bottom_text: Option<LegacyTextElement>,
 
-    /// Legacy global pixel offsets retained until per-component transforms land.
+    /// Global pixel offsets applied to typography layers.
     #[serde(default)]
     pub text_x_offset: i32,
     #[serde(default)]
@@ -799,9 +899,71 @@ impl Default for RenderConfig {
     }
 }
 
+fn find_glyph_component(components: &[SceneComponent]) -> Option<&GlyphComponent> {
+    for component in components {
+        match component {
+            SceneComponent::Glyph(glyph) => return Some(glyph),
+            SceneComponent::Group(group) => {
+                if let Some(glyph) = find_glyph_component(&group.children) {
+                    return Some(glyph);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn find_glyph_component_mut(components: &mut [SceneComponent]) -> Option<&mut GlyphComponent> {
+    for component in components {
+        match component {
+            SceneComponent::Glyph(glyph) => return Some(glyph),
+            SceneComponent::Group(group) => {
+                if let Some(glyph) = find_glyph_component_mut(&mut group.children) {
+                    return Some(glyph);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn find_text_component_mut(components: &mut [SceneComponent]) -> Option<&mut TextComponent> {
+    for component in components {
+        match component {
+            SceneComponent::Text(text) => return Some(text),
+            SceneComponent::Group(group) => {
+                if let Some(text) = find_text_component_mut(&mut group.children) {
+                    return Some(text);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn normalize_component_assets(components: &mut [SceneComponent]) {
+    for component in components {
+        if let Some(fonts) = component.fonts_mut() {
+            for font_path in fonts {
+                *font_path = portable_asset_reference(font_path);
+            }
+        }
+        if let Some(source) = component.image_source_mut() {
+            *source = portable_asset_reference(source);
+        }
+        if let SceneComponent::Group(group) = component {
+            normalize_component_assets(&mut group.children);
+        }
+    }
+}
+
 impl RenderConfig {
-    /// Upgrade legacy v3 fixed text slots into the ordered scene-component model.
-    /// Calling this repeatedly is harmless.
+    /// Upgrade the published v3 fixed-slot layout to the current v4 scene.
+    /// Current v4 component arrays are left untouched. Calling this repeatedly
+    /// is harmless.
     pub fn normalize_scene(&mut self) {
         // Never reinterpret or downgrade a configuration written by a newer
         // schema. Callers that render/save will reject it with a clear error.
@@ -857,35 +1019,49 @@ impl RenderConfig {
     }
 
     pub fn primary_glyph_component(&self) -> Option<&GlyphComponent> {
-        self.components.iter().find_map(SceneComponent::as_glyph)
+        find_glyph_component(&self.components)
     }
 
     pub fn primary_glyph_component_mut(&mut self) -> Option<&mut GlyphComponent> {
-        self.components
-            .iter_mut()
-            .find_map(SceneComponent::as_glyph_mut)
-    }
-
-    pub fn primary_text_component(&self) -> Option<&TextComponent> {
-        self.components.iter().find_map(SceneComponent::as_text)
+        find_glyph_component_mut(&mut self.components)
     }
 
     pub fn primary_text_component_mut(&mut self) -> Option<&mut TextComponent> {
-        self.components
-            .iter_mut()
-            .find_map(SceneComponent::as_text_mut)
+        find_text_component_mut(&mut self.components)
     }
 
     fn normalize_bundled_asset_references(&mut self) {
-        for component in &mut self.components {
-            if let Some(fonts) = component.fonts_mut() {
-                for font_path in fonts {
-                    *font_path = portable_asset_reference(font_path);
-                }
-            }
-        }
+        normalize_component_assets(&mut self.components);
         if let Some(music_path) = self.music_path.as_mut() {
             *music_path = portable_asset_reference(music_path);
+        }
+    }
+
+    fn resolve_config_references(&mut self, base_dir: &Path) {
+        resolve_component_config_paths(&mut self.components, base_dir);
+        if let Some(music_path) = self.music_path.as_mut() {
+            *music_path = resolve_config_reference(music_path, base_dir, true, false);
+        }
+        self.output_path = resolve_config_reference(&self.output_path, base_dir, false, false);
+        self.ffmpeg.path = resolve_config_reference(&self.ffmpeg.path, base_dir, true, true);
+        for template in self.content_templates.values_mut() {
+            if let ContentTemplate::External { executable, .. } = template {
+                *executable = resolve_config_reference(executable, base_dir, true, true);
+            }
+        }
+    }
+
+    fn make_config_references_portable(&mut self, base_dir: &Path) {
+        portable_component_config_paths(&mut self.components, base_dir);
+        if let Some(music_path) = self.music_path.as_mut() {
+            *music_path = portable_config_reference(music_path, base_dir, true, false);
+        }
+        self.output_path = portable_config_reference(&self.output_path, base_dir, false, false);
+        self.ffmpeg.path = portable_config_reference(&self.ffmpeg.path, base_dir, true, true);
+        for template in self.content_templates.values_mut() {
+            if let ContentTemplate::External { executable, .. } = template {
+                *executable = portable_config_reference(executable, base_dir, true, true);
+            }
         }
     }
 
@@ -911,14 +1087,6 @@ impl RenderConfig {
         total
     }
 
-    pub fn duration(&self) -> f64 {
-        if self.fps.is_finite() && self.fps > 0.0 {
-            self.total_frames() as f64 / self.fps
-        } else {
-            0.0
-        }
-    }
-
     pub fn from_file(path: &Path) -> Result<Self, serde_json::Error> {
         let content = std::fs::read_to_string(path).map_err(serde_json::Error::io)?;
         let value: serde_json::Value = serde_json::from_str(&content)?;
@@ -938,6 +1106,7 @@ impl RenderConfig {
         let mut config: Self = serde_json::from_value(value)?;
         config.normalize_scene();
         config.normalize_bundled_asset_references();
+        config.resolve_config_references(&config_base_dir(path));
         Ok(config)
     }
 
@@ -961,6 +1130,7 @@ impl RenderConfig {
         let mut portable_config = self.clone();
         portable_config.normalize_scene();
         portable_config.normalize_bundled_asset_references();
+        portable_config.make_config_references_portable(&config_base_dir(path));
         let content = serde_json::to_string_pretty(&portable_config)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
         std::fs::write(path, content)
@@ -968,303 +1138,5 @@ impl RenderConfig {
 }
 
 #[cfg(test)]
-mod font_config_tests {
-    use super::{portable_asset_reference, CharEntry, Event, EventType, RenderConfig};
-    use crate::scene::{Color, FontConfig, GlyphSelector, Position, TextAlign};
-    use std::path::{Path, PathBuf};
-
-    #[test]
-    fn bundled_asset_paths_are_serialized_portably() {
-        let development_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets")
-            .join("fonts")
-            .join("Example.ttf");
-        assert_eq!(
-            portable_asset_reference(&development_path),
-            PathBuf::from("assets/fonts/Example.ttf")
-        );
-    }
-
-    #[test]
-    fn legacy_size_only_config_gets_advanced_defaults() {
-        let config: FontConfig = serde_json::from_str(r#"{"size":128.0}"#).unwrap();
-        assert_eq!(config.size, 128.0);
-        assert!(config.font_feature_settings.is_empty());
-        assert!(config.font_variation_settings.is_empty());
-        assert!(config.font_optical_sizing);
-    }
-
-    #[test]
-    fn default_config_serializes_scene_schema_without_legacy_slots() {
-        let config = RenderConfig::default();
-        let value = serde_json::to_value(&config).unwrap();
-
-        assert_eq!(
-            value["schema_version"].as_u64(),
-            Some(super::CURRENT_SCHEMA_VERSION as u64)
-        );
-        assert_eq!(value["components"].as_array().map(Vec::len), Some(2));
-        assert_eq!(value["components"][0]["type"].as_str(), Some("glyph"));
-        assert_eq!(value["components"][1]["type"].as_str(), Some("text"));
-        assert!(value.get("main_text").is_none());
-        assert!(value.get("bottom_text").is_none());
-        assert!(value.get("main_font").is_none());
-        assert!(value.get("bottom_font").is_none());
-    }
-
-    #[test]
-    fn future_schema_is_not_downgraded_by_normalization() {
-        let mut config = RenderConfig {
-            schema_version: super::CURRENT_SCHEMA_VERSION + 1,
-            ..RenderConfig::default()
-        };
-        config.normalize_scene();
-        assert_eq!(config.schema_version, super::CURRENT_SCHEMA_VERSION + 1);
-    }
-
-    #[test]
-    fn missing_schema_version_is_treated_as_legacy_v3() {
-        let mut value = serde_json::to_value(RenderConfig::default()).unwrap();
-        let object = value.as_object_mut().unwrap();
-        object.remove("schema_version");
-        object.remove("components");
-
-        let mut config: RenderConfig = serde_json::from_value(value).unwrap();
-        assert_eq!(config.schema_version, super::LEGACY_SCHEMA_VERSION);
-        config.normalize_scene();
-
-        assert_eq!(config.schema_version, super::CURRENT_SCHEMA_VERSION);
-        assert_eq!(config.components.len(), 2);
-    }
-
-    #[test]
-    fn intentional_empty_v4_scene_stays_empty() {
-        let mut config = RenderConfig::default();
-        config.components.clear();
-        config.normalize_scene();
-        assert!(config.components.is_empty());
-    }
-
-    #[test]
-    fn legacy_fixed_slots_migrate_to_ordered_components() {
-        let mut config = RenderConfig {
-            schema_version: super::LEGACY_SCHEMA_VERSION,
-            components: Vec::new(),
-            legacy_main_text: Some(super::LegacyTextElement {
-                id: "legacy-main".to_string(),
-                fonts: vec![PathBuf::from("main.ttf")],
-                content: "ignored-by-v3-main-renderer".to_string(),
-                position: Position { x: 0.25, y: 0.4 },
-                color: Color {
-                    r: 1,
-                    g: 2,
-                    b: 3,
-                    a: 4,
-                },
-                enabled: true,
-                align: TextAlign::Center,
-                wrap: true,
-                max_width: 0.5,
-            }),
-            legacy_main_font: Some(FontConfig {
-                size: 321.0,
-                ..FontConfig::default()
-            }),
-            legacy_bottom_text: Some(super::LegacyTextElement {
-                id: "legacy-bottom".to_string(),
-                fonts: vec![PathBuf::from("bottom.ttf")],
-                content: "{code} :: {description}".to_string(),
-                position: Position { x: 0.1, y: 0.9 },
-                color: Color {
-                    r: 5,
-                    g: 6,
-                    b: 7,
-                    a: 8,
-                },
-                enabled: true,
-                align: TextAlign::Right,
-                wrap: false,
-                max_width: 0.8,
-            }),
-            legacy_bottom_font: Some(FontConfig {
-                size: 37.0,
-                ..FontConfig::default()
-            }),
-            ..RenderConfig::default()
-        };
-
-        config.normalize_scene();
-
-        assert_eq!(config.schema_version, super::CURRENT_SCHEMA_VERSION);
-        assert_eq!(config.components.len(), 2);
-        let glyph = config.primary_glyph_component().unwrap();
-        assert_eq!(glyph.id, "legacy-main");
-        assert_eq!(glyph.content, "{glyph}");
-        assert_eq!(glyph.fonts, vec![PathBuf::from("main.ttf")]);
-        assert_eq!(glyph.font.size, 321.0);
-        let text = config.components[1].as_text().unwrap();
-        assert_eq!(text.id, "legacy-bottom");
-        assert_eq!(text.content, "{code} :: {description}");
-        assert_eq!(text.font.size, 37.0);
-        assert_eq!(text.align, TextAlign::Right);
-    }
-
-    #[test]
-    fn legacy_event_names_deserialize_to_component_events() {
-        let event_type: EventType = serde_json::from_str(
-            r#"{"set_text_position":{"element_id":"caption","position":{"x":0.2,"y":0.3}}}"#,
-        )
-        .unwrap();
-
-        match event_type {
-            EventType::SetComponentPosition {
-                element_id,
-                position,
-            } => {
-                assert_eq!(element_id, "caption");
-                assert_eq!(position.x, 0.2);
-                assert_eq!(position.y, 0.3);
-            }
-            other => panic!("unexpected event: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_concatenated_glyph_selectors_and_font_indices() {
-        let entry = CharEntry {
-            code_point: "U+0033{0}/at{0}#0{1}".to_string(),
-            description: String::new(),
-            background_color: None,
-            text_color: None,
-            position: None,
-            duration_frames: None,
-        };
-        let specs = entry.glyph_specs();
-        assert_eq!(specs.len(), 3);
-        assert_eq!(specs[0].selector, GlyphSelector::CodePoint(0x33));
-        assert_eq!(specs[0].font_index, Some(0));
-        assert_eq!(specs[1].selector, GlyphSelector::Name("at".to_string()));
-        assert_eq!(specs[1].font_index, Some(0));
-        assert_eq!(specs[2].selector, GlyphSelector::Index(0));
-        assert_eq!(specs[2].font_index, Some(1));
-    }
-
-    #[test]
-    fn selected_unicode_text_ignores_explicit_glyph_selectors() {
-        let entry = CharEntry {
-            code_point: "U+0041/fooU+0042#3".to_string(),
-            description: String::new(),
-            background_color: None,
-            text_color: None,
-            position: None,
-            duration_frames: None,
-        };
-        assert_eq!(entry.selected_unicode_text(), "AB");
-
-        let literal = CharEntry {
-            code_point: "not-a-selector".to_string(),
-            ..entry
-        };
-        assert_eq!(literal.selected_unicode_text(), "not-a-selector");
-
-        let hex_like_literal = CharEntry {
-            code_point: "face-to-face".to_string(),
-            ..literal
-        };
-        assert_eq!(hex_like_literal.selected_unicode_text(), "face-to-face");
-    }
-
-    #[test]
-    fn accepts_all_codepoint_prefix_forms() {
-        let entry = CharEntry {
-            code_point: "U+0041u+0042,0x43 0X44 45".to_string(),
-            description: String::new(),
-            background_color: None,
-            text_color: None,
-            position: None,
-            duration_frames: None,
-        };
-        let values: Vec<_> = entry
-            .glyph_specs()
-            .into_iter()
-            .map(|spec| spec.selector)
-            .collect();
-        assert_eq!(
-            values,
-            vec![
-                GlyphSelector::CodePoint(0x41),
-                GlyphSelector::CodePoint(0x42),
-                GlyphSelector::CodePoint(0x43),
-                GlyphSelector::CodePoint(0x44),
-                GlyphSelector::CodePoint(0x45),
-            ]
-        );
-    }
-
-    #[test]
-    fn separates_named_glyphs_from_delimited_codepoints() {
-        let entry = CharEntry {
-            code_point: "/A U+0042,/C".to_string(),
-            description: String::new(),
-            background_color: None,
-            text_color: None,
-            position: None,
-            duration_frames: None,
-        };
-        let selectors: Vec<_> = entry
-            .glyph_specs()
-            .into_iter()
-            .map(|spec| spec.selector)
-            .collect();
-        assert_eq!(
-            selectors,
-            vec![
-                GlyphSelector::Name("A".to_string()),
-                GlyphSelector::CodePoint(0x42),
-                GlyphSelector::Name("C".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn reachable_pause_events_extend_total_frames() {
-        let config = RenderConfig {
-            fps: 10.0,
-            characters: vec![CharEntry {
-                code_point: "U+0041".to_string(),
-                description: String::new(),
-                background_color: None,
-                text_color: None,
-                position: None,
-                duration_frames: Some(5),
-            }],
-            events: vec![Event {
-                frame: 2,
-                event_type: EventType::Pause { duration: 0.3 },
-            }],
-            ..Default::default()
-        };
-        assert_eq!(config.total_frames(), 8);
-    }
-
-    #[test]
-    fn unreachable_pause_events_do_not_extend_total_frames() {
-        let config = RenderConfig {
-            fps: 10.0,
-            characters: vec![CharEntry {
-                code_point: "U+0041".to_string(),
-                description: String::new(),
-                background_color: None,
-                text_color: None,
-                position: None,
-                duration_frames: Some(5),
-            }],
-            events: vec![Event {
-                frame: 5,
-                event_type: EventType::Pause { duration: 1.0 },
-            }],
-            ..Default::default()
-        };
-        assert_eq!(config.total_frames(), 5);
-    }
-}
+#[path = "../tests/unit/json_config.rs"]
+mod font_config_tests;

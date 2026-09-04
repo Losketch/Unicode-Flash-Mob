@@ -10,6 +10,7 @@ import {
   Stack,
   Card,
   CardContent,
+  Alert,
 } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -19,6 +20,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { applyOutputDirectory, getSidecarConfigPath } from "../utils/render";
 import type { RenderConfig } from "../types/config";
 import type { RenderProgressPayload } from "../types/events";
+import { formatError } from "../utils/errors";
 
 interface PreviewPanelProps {
   config: RenderConfig | null;
@@ -32,6 +34,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({ config }) => {
   const [isRendering, setIsRendering] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState(t("render:statusReady"));
+  const [lastError, setLastError] = useState<string | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -81,6 +84,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({ config }) => {
     setIsRendering(true);
     setStatus(t("render:statusRendering"));
     setProgress(0);
+    setLastError(null);
 
     const renderConfig = {
       ...config,
@@ -98,9 +102,21 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({ config }) => {
     );
     const configPath = getSidecarConfigPath(renderConfig.output_path);
     try {
+      await invoke("validate_config", { config: renderConfig, requireFrames: true });
+    } catch (error) {
+      const message = `${t("render:preflightFailed")}: ${formatError(error)}`;
+      setLastError(message);
+      enqueueSnackbar(message, { variant: "error" });
+      setIsRendering(false);
+      setStatus(t("render:statusFailed"));
+      return;
+    }
+    try {
       await invoke("save_config", { path: configPath, config: renderConfig });
     } catch (error) {
-      enqueueSnackbar(`${t("render:saveConfigFailed")}: ${error}`, { variant: "error" });
+      const message = `${t("render:saveConfigFailed")}: ${formatError(error)}`;
+      setLastError(message);
+      enqueueSnackbar(message, { variant: "error" });
       setIsRendering(false);
       setStatus(t("render:statusFailed"));
       return;
@@ -128,12 +144,14 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({ config }) => {
       });
       enqueueSnackbar(t("render:renderSuccess"), { variant: "success" });
     } catch (error) {
+      const message = `${t("render:renderError")}: ${formatError(error)}`;
+      setLastError(message);
       setStatus(t("render:statusFailed"));
       updateTask(taskId, {
         status: "failed",
-        message: `${t("render:renderError")}: ${error}`,
+        message,
       });
-      enqueueSnackbar(`${t("render:renderError")}: ${error}`, { variant: "error" });
+      enqueueSnackbar(message, { variant: "error" });
     } finally {
       setIsRendering(false);
       currentTaskIdRef.current = null;
@@ -170,6 +188,11 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({ config }) => {
           )}
         </CardContent>
       </Card>
+      {lastError && (
+        <Alert severity="error" sx={{ mt: 2, whiteSpace: "pre-wrap" }}>
+          {lastError}
+        </Alert>
+      )}
       {!config && (
         <Typography color="text.secondary" align="center" sx={{ mt: 4 }}>
           {t("render:noConfigError")}

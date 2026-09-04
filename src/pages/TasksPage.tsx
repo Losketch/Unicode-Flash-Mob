@@ -11,6 +11,7 @@ import {
   IconButton,
   LinearProgress,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -18,6 +19,7 @@ import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { invoke } from "@tauri-apps/api/core";
 import { useTasks, type TaskItem } from "../contexts/TaskContext";
+import { formatError } from "../utils/errors";
 
 const statusColors: Record<TaskItem["status"], "default" | "primary" | "success" | "error" | "warning"> = {
   pending: "default",
@@ -39,7 +41,7 @@ const TasksPage: React.FC = () => {
       const config = await invoke("load_config", { path: task.configPath });
       navigate("/editor", { state: { config } });
     } catch (error) {
-      enqueueSnackbar(`${t("loadConfigFailed")}: ${error}`, { variant: "error" });
+      enqueueSnackbar(`${t("loadConfigFailed")}: ${formatError(error)}`, { variant: "error" });
     }
   };
 
@@ -110,16 +112,21 @@ const TasksPage: React.FC = () => {
                       </Typography>
                     )}
                   </Box>
-                  <IconButton
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      removeTask(task.id);
-                    }}
-                    color="error"
-                    size="small"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    <Tooltip title={t("deleteTask")} arrow>
+                      <IconButton
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeTask(task.id);
+                        }}
+                        color="error"
+                        size="small"
+                        aria-label={t("deleteTask")}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
                 </Stack>
 
                 {task.status === "running" && (

@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useSnackbar } from "notistack";
 import {
+  Alert,
   Button,
   Divider,
   FormControl,
@@ -34,6 +35,7 @@ import type {
   RenderConfig,
   RenderConfigPath,
 } from "../types/config";
+import { formatError } from "../utils/errors";
 
 interface ConfigEditorProps {
   config: RenderConfig | null;
@@ -77,7 +79,7 @@ const ConfigEditor: React.FC<ConfigEditorProps> = ({ config, onConfigChange }) =
         showAlert(t("config:loadSuccess"), "success");
       }
     } catch (error) {
-      showAlert(`${t("config:loadFailed")}: ${error}`, "error");
+      showAlert(`${t("config:loadFailed")}: ${formatError(error)}`, "error");
     }
   };
 
@@ -92,7 +94,7 @@ const ConfigEditor: React.FC<ConfigEditorProps> = ({ config, onConfigChange }) =
         showAlert(t("config:saveSuccess"), "success");
       }
     } catch (error) {
-      showAlert(`${t("config:saveFailed")}: ${error}`, "error");
+      showAlert(`${t("config:saveFailed")}: ${formatError(error)}`, "error");
     }
   };
 
@@ -102,7 +104,7 @@ const ConfigEditor: React.FC<ConfigEditorProps> = ({ config, onConfigChange }) =
       onConfigChange(defaultConfig);
       showAlert(t("config:defaultLoaded"), "success");
     } catch (error) {
-      showAlert(`${t("config:getDefaultFailed")}: ${error}`, "error");
+      showAlert(`${t("config:getDefaultFailed")}: ${formatError(error)}`, "error");
     }
   };
 
@@ -472,6 +474,65 @@ const ConfigEditor: React.FC<ConfigEditorProps> = ({ config, onConfigChange }) =
                     value={config.ffmpeg?.pixel_format || "yuv420p"}
                     onChange={(event) =>
                       updateConfig("ffmpeg.pixel_format", event.target.value)
+                    }
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 1 }} />
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle1" color="error.main" fontWeight={700}>
+                      {t("config:encodingDangerZone")}
+                    </Typography>
+                    <Alert severity="warning">
+                      {t("config:encodingDangerWarning")}
+                    </Alert>
+                  </Stack>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label={t("config:parallelWorkers")}
+                    value={config.ffmpeg?.parallel_workers ?? 0}
+                    inputProps={{ min: 0, step: 1 }}
+                    helperText={t("config:parallelWorkersHint")}
+                    onChange={(event) =>
+                      updateConfig(
+                        "ffmpeg.parallel_workers",
+                        Math.max(0, Number.parseInt(event.target.value, 10) || 0)
+                      )
+                    }
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label={t("config:maxInflightFrames")}
+                    value={config.ffmpeg?.max_inflight_frames ?? 2}
+                    inputProps={{ min: 1, step: 1 }}
+                    helperText={t("config:maxInflightFramesHint")}
+                    onChange={(event) =>
+                      updateConfig(
+                        "ffmpeg.max_inflight_frames",
+                        Math.max(1, Number.parseInt(event.target.value, 10) || 1)
+                      )
+                    }
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label={t("config:encodingProcesses")}
+                    value={config.ffmpeg?.encoding_processes ?? 1}
+                    inputProps={{ min: 1, step: 1 }}
+                    helperText={t("config:encodingProcessesHint")}
+                    onChange={(event) =>
+                      updateConfig(
+                        "ffmpeg.encoding_processes",
+                        Math.max(1, Number.parseInt(event.target.value, 10) || 1)
+                      )
                     }
                   />
                 </Grid>

@@ -21,8 +21,29 @@ pub fn save_config(path: String, config: RenderConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_default_config() -> RenderConfig {
-    RenderConfig::default()
+pub fn get_default_config(app: tauri::AppHandle) -> RenderConfig {
+    let mut config = RenderConfig::default();
+    let base_dir = app
+        .path()
+        .video_dir()
+        .or_else(|_| std::env::current_dir())
+        .unwrap_or_else(|_| PathBuf::from("."));
+    config.output_path = base_dir
+        .join("Unicode Flash Mob")
+        .join(crate::json_config::default_output_filename());
+    config
+}
+
+#[tauri::command]
+pub fn validate_config(config: RenderConfig, require_frames: Option<bool>) -> Result<(), String> {
+    let require_frames = require_frames.unwrap_or(true);
+    crate::config_validation::validate_render_config(&config, require_frames)
+        .map_err(|error| format!("Configuration validation failed: {error:#}"))?;
+    if require_frames {
+        crate::ffmpeg::check_ffmpeg_runtime(Some(&config.ffmpeg.path))
+            .map_err(|error| format!("FFmpeg runtime preflight failed: {error:#}"))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -148,6 +169,7 @@ pub fn run_gui() -> Result<(), tauri::Error> {
             load_config,
             save_config,
             get_default_config,
+            validate_config,
             render_video,
             render_frame_preview,
             extract_characters,

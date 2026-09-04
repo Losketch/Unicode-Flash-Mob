@@ -30,6 +30,7 @@ import { SUPPORTED_LOCALES, LOCALE_LABELS } from "../i18n";
 import { isSupportedLocale, isThemeMode } from "../config/settings";
 import { useSettings } from "../contexts/SettingsContext";
 import { isHexColor } from "../utils/config";
+import { formatError } from "../utils/errors";
 
 const PRESET_ACCENT_COLORS = [
   "#6750A4",
@@ -111,7 +112,7 @@ const SettingsPage: React.FC = () => {
       }
       else enqueueSnackbar(t("encoderUnavailable"), { variant: "warning" });
     } catch (error) {
-      enqueueSnackbar(`${t("encoderDetectFailed")}: ${error}`, { variant: "error" });
+      enqueueSnackbar(`${t("encoderDetectFailed")}: ${formatError(error)}`, { variant: "error" });
     } finally {
       setEncoderLoading(null);
     }
@@ -127,7 +128,7 @@ const SettingsPage: React.FC = () => {
         { variant: available ? "success" : "error" }
       );
     } catch (error) {
-      enqueueSnackbar(`${t("encoderTestFailed")}: ${error}`, { variant: "error" });
+      enqueueSnackbar(`${t("encoderTestFailed")}: ${formatError(error)}`, { variant: "error" });
     } finally {
       setEncoderLoading(null);
     }

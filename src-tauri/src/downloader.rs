@@ -39,11 +39,6 @@ pub fn download_all(output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn download_file(url: &str, destination: &Path) -> Result<()> {
-    let client = http_client()?;
-    download_file_with_client(&client, url, destination)
-}
-
 fn download_file_with_client(client: &Client, url: &str, destination: &Path) -> Result<()> {
     if let Some(parent) = destination
         .parent()

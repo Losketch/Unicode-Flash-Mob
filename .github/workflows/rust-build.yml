@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: ["3.0"]
+    tags: ["v*"]
     paths:
       - "src/**"
       - "src-tauri/**"
@@ -15,9 +16,8 @@ on:
       - "vite.config.ts"
       - "tsconfig*.json"
       - ".github/workflows/rust-build.yml"
+      - ".github/workflows/release.yml"
   pull_request:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -67,6 +67,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             curl \
+            ffmpeg \
             file \
             libayatana-appindicator3-dev \
             libfuse2 \
@@ -84,19 +85,12 @@ jobs:
         run: pnpm build
 
       - name: Check Rust formatting
-        id: rustfmt
-        continue-on-error: true
         working-directory: src-tauri
         run: cargo fmt --all -- --check
 
-      - name: Report Rust formatting warning
-        if: steps.rustfmt.outcome == 'failure'
-        run: |
-          echo "::warning title=Rust formatting::Rust sources are not formatted. Run: cargo fmt --manifest-path src-tauri/Cargo.toml --all"
-
-      - name: Check CLI-only build
+      - name: Check Rust build
         working-directory: src-tauri
-        run: cargo check --no-default-features --features cli --locked
+        run: cargo check --all-features --locked
 
       - name: Run Rust tests
         working-directory: src-tauri
@@ -104,11 +98,23 @@ jobs:
 
       - name: Run Clippy
         working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features --locked -- -D warnings -A dead-code
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: Validate bundled configuration
+        working-directory: src-tauri
+        run: cargo run --all-features --locked -- validate --config tests/fixtures/configs/component_animation.json --preview
+
+      - name: Validate render-ready configuration
+        working-directory: src-tauri
+        run: cargo run --all-features --locked -- validate --config tests/fixtures/configs/component_animation.json
+
+      - name: Run render-ready runtime doctor
+        working-directory: src-tauri
+        run: cargo run --all-features --locked -- doctor --config tests/fixtures/configs/component_animation.json
 
   bundle:
     name: Tauri bundle (${{ matrix.platform }})
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
     needs: quality
     runs-on: ${{ matrix.os }}
     strategy:
@@ -117,8 +123,6 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux
-          - os: macos-latest
-            platform: macos
           - os: windows-latest
             platform: windows
 
@@ -175,6 +179,17 @@ jobs:
       - name: Build Tauri application and installers
         run: cargo tauri build --ci --no-sign -- --locked
 
+      - name: Check release binary CLI
+        shell: bash
+        run: |
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            app="src-tauri/target/release/unicode_flash_mob.exe"
+          else
+            app="src-tauri/target/release/unicode_flash_mob"
+          fi
+          "$app" --help >/dev/null
+          "$app" doctor --preview
+
       - name: Upload Tauri bundles
         uses: actions/upload-artifact@v7
         with:
@@ -182,83 +197,3 @@ jobs:
           path: src-tauri/target/release/bundle/**
           if-no-files-found: error
           retention-days: 14
-
-  publish:
-    name: Publish Tauri release (${{ matrix.platform }})
-    if: github.event_name == 'release'
-    needs: quality
-    permissions:
-      contents: write
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            platform: linux
-          - os: macos-latest
-            platform: macos
-          - os: windows-latest
-            platform: windows
-
-    steps:
-      - name: Check out release tag
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
-          cache-on-failure: true
-
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            libfuse2 \
-            libgtk-3-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            librsvg2-dev \
-            patchelf \
-            rpm
-
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install cached Tauri CLI
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: tauri-cli
-          version: "^2.9.0"
-          locked: true
-
-      - name: Build and upload release assets
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ github.event.release.id }}
-          tagName: ${{ github.event.release.tag_name }}
-          tauriScript: cargo tauri
-          args: --ci --no-sign -- --locked
