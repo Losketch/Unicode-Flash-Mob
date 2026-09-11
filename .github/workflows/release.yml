@@ -13,8 +13,74 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    outputs:
+      release_id: ${{ steps.release.outputs.result }}
+
+    steps:
+      - name: Find or create draft release
+        id: release
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+
+            const releases = await github.paginate(
+              github.rest.repos.listReleases,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              }
+            );
+
+            const existing = releases.find(
+              release => release.tag_name === tag
+            );
+
+            if (existing) {
+              if (!existing.draft) {
+                core.setFailed(
+                  `Release ${tag} already exists and is published.`
+                );
+                return;
+              }
+
+              core.info(
+                `Using existing draft release ${existing.id} for ${tag}.`
+              );
+
+              return String(existing.id);
+            }
+
+            const { data: release } =
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                name: `Unicode Flash Mob ${tag}`,
+                draft: true,
+                prerelease: tag.includes('-rc')
+              });
+
+            core.info(
+              `Created draft release ${release.id} for ${tag}.`
+            );
+
+            return String(release.id);
+
   release:
     name: Unsigned bundle (${{ matrix.platform }})
+    needs: create-release
+
     permissions:
       contents: write
 
@@ -24,6 +90,7 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux
+
           - os: windows-latest
             platform: windows
 
@@ -77,11 +144,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Unicode Flash Mob ${{ github.ref_name }}
-          releaseBody: 'From GitHub Action'
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
-          generateReleaseNotes: true
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          uploadUpdaterJson: false
           uploadUpdaterSignatures: false
           args: --ci --no-sign -- --locked
