@@ -90,6 +90,11 @@ enum Commands {
         #[arg(required = true)]
         font_files: Vec<PathBuf>,
 
+        /// Zero-based TTC/OTC face index for each font file. Repeat once per input font.
+        /// When omitted, every font uses face index 0.
+        #[arg(long = "face-index")]
+        face_indices: Vec<u32>,
+
         /// Output JSON config path
         #[arg(short, long, default_value = "unicode_config.json")]
         output: PathBuf,
@@ -117,6 +122,9 @@ enum Commands {
     FontPreview {
         #[arg(short, long)]
         font: PathBuf,
+        /// Zero-based face index for TTC/OTC font collections.
+        #[arg(long, default_value_t = 0)]
+        face_index: u32,
         #[arg(short, long, default_value = "🛑 🩰")]
         text: String,
         #[arg(short, long, default_value = "font-preview.png")]
@@ -160,13 +168,15 @@ fn main() -> Result<()> {
         } => cmd_frame(config, entry_index, code_point, output, max_dimension)?,
         Commands::Extract {
             font_files,
+            face_indices,
             output,
             video_output,
-        } => cmd_extract(font_files, output, video_output)?,
+        } => cmd_extract(font_files, face_indices, output, video_output)?,
         Commands::Config { output } => cmd_config(output)?,
         Commands::Download { output } => cmd_download(output)?,
         Commands::FontPreview {
             font,
+            face_index,
             text,
             output,
             size,
@@ -175,6 +185,7 @@ fn main() -> Result<()> {
             no_optical_sizing,
         } => cmd_font_preview(
             font,
+            face_index,
             text,
             output,
             size,
@@ -285,15 +296,36 @@ fn cmd_frame(
 
 fn cmd_extract(
     font_files: Vec<PathBuf>,
+    face_indices: Vec<u32>,
     output: PathBuf,
     video_output: Option<PathBuf>,
 ) -> Result<()> {
-    let config = extractor::extract_to_config(&font_files, &output, video_output.as_deref())?;
+    let font_count = font_files.len();
+    if !face_indices.is_empty() && face_indices.len() != font_count {
+        anyhow::bail!(
+            "--face-index must be omitted or repeated exactly once per font file ({} fonts, {} indices)",
+            font_count,
+            face_indices.len()
+        );
+    }
+    let font_sources: Vec<scene::FontSource> = font_files
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| {
+            let face_index = face_indices.get(index).copied().unwrap_or(0);
+            if face_index == 0 {
+                scene::FontSource::Path(path)
+            } else {
+                scene::FontSource::Face { path, face_index }
+            }
+        })
+        .collect();
+    let config = extractor::extract_to_config(&font_sources, &output, video_output.as_deref())?;
 
     println!(
         "Extracted {} characters from {} font file(s)",
         config.characters.len(),
-        font_files.len()
+        font_count
     );
     println!("Config saved: {}", output.display());
     println!("Video output path: {}", config.output_path.display());
@@ -326,6 +358,7 @@ fn cmd_download(output: Option<PathBuf>) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 fn cmd_font_preview(
     font: PathBuf,
+    face_index: u32,
     text: String,
     output: PathBuf,
     size: f32,
@@ -339,8 +372,8 @@ fn cmd_font_preview(
         font_variation_settings: parse_settings(&variations, "variation")?,
         font_optical_sizing: optical_sizing,
     };
-    let loader = Arc::new(font_loader::FontLoader::from_path_with_config(
-        &font, &config,
+    let loader = Arc::new(font_loader::FontLoader::from_path_with_face_index(
+        &font, face_index, &config,
     )?);
     let mut image = image::RgbaImage::from_pixel(1024, 512, image::Rgba([255, 255, 255, 255]));
     let component_id = "__font_preview".to_string();
@@ -358,7 +391,10 @@ fn cmd_font_preview(
             b: 0,
             a: 255,
         },
-        fonts: vec![font],
+        fonts: vec![scene::FontSource::Face {
+            path: font,
+            face_index,
+        }],
         font: config,
         align: scene::TextAlign::Left,
         wrap: false,

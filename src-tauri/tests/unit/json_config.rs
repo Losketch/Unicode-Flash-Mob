@@ -1,12 +1,16 @@
 use super::{portable_asset_reference, AnimationCurve, CharEntry, Event, EventType, RenderConfig};
 use crate::content_template::ContentTemplate;
 use crate::scene::{
-    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, GlyphComponent, GlyphSelector,
-    GroupComponent, ImageComponent, ImageFit, Position, ProgressBarBorder, ProgressBarComponent,
-    ProgressDirection, Scale2D, SceneComponent, Size, TextAlign, Transform2D,
+    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, FontSource, GlyphComponent,
+    GlyphSelector, GroupComponent, ImageComponent, ImageFit, Position, ProgressBarBorder,
+    ProgressBarComponent, ProgressDirection, Scale2D, SceneComponent, Size, TextAlign, Transform2D,
 };
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+fn font_source(path: impl Into<PathBuf>) -> FontSource {
+    FontSource::from(path.into())
+}
 
 fn unique_temp_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -42,7 +46,13 @@ fn from_file_resolves_project_relative_paths_against_config_directory() {
                 ..ImageComponent::default()
             }),
             SceneComponent::Glyph(GlyphComponent {
-                fonts: vec![PathBuf::from("fonts/project.ttf")],
+                fonts: vec![
+                    font_source("fonts/project.ttf"),
+                    FontSource::Face {
+                        path: PathBuf::from("fonts/collection.ttc"),
+                        face_index: 2,
+                    },
+                ],
                 ..GlyphComponent::default()
             }),
         ],
@@ -69,7 +79,16 @@ fn from_file_resolves_project_relative_paths_against_config_directory() {
     let SceneComponent::Glyph(glyph) = &loaded.components[1] else {
         panic!("expected glyph");
     };
-    assert_eq!(glyph.fonts, vec![root.join("fonts/project.ttf")]);
+    assert_eq!(
+        glyph.fonts,
+        vec![
+            font_source(root.join("fonts/project.ttf")),
+            FontSource::Face {
+                path: root.join("fonts/collection.ttc"),
+                face_index: 2,
+            },
+        ]
+    );
     let ContentTemplate::External { executable, .. } =
         loaded.content_templates.get("external").unwrap()
     else {
@@ -86,7 +105,7 @@ fn from_file_preserves_bundled_assets_and_bare_commands() {
     let config_path = root.join("project.json");
     let mut config = RenderConfig {
         components: vec![SceneComponent::Glyph(GlyphComponent {
-            fonts: vec![PathBuf::from("assets/fonts/IBMPlexSans-Bold.ttf")],
+            fonts: vec![font_source("assets/fonts/IBMPlexSans-Bold.ttf")],
             ..GlyphComponent::default()
         })],
         ..RenderConfig::default()
@@ -107,7 +126,7 @@ fn from_file_preserves_bundled_assets_and_bare_commands() {
     };
     assert_eq!(
         glyph.fonts,
-        vec![PathBuf::from("assets/fonts/IBMPlexSans-Bold.ttf")]
+        vec![font_source("assets/fonts/IBMPlexSans-Bold.ttf")]
     );
     assert_eq!(loaded.ffmpeg.path, PathBuf::from("ffmpeg"));
     let ContentTemplate::External { executable, .. } =
@@ -319,12 +338,46 @@ fn image_asset_paths_are_normalized_with_other_bundled_assets() {
 }
 
 #[test]
+fn current_v4_serialization_keeps_integer_schema_without_revision() {
+    let value = serde_json::to_value(RenderConfig::default()).unwrap();
+    assert_eq!(value["schema_version"], serde_json::json!(4));
+    assert!(value.get("schema_revision").is_none());
+}
+
+#[test]
 fn current_v4_scene_normalization_is_idempotent() {
     let mut config = RenderConfig::default();
     let before = serde_json::to_value(&config.components).unwrap();
     config.normalize_scene();
     assert_eq!(config.schema_version, super::CURRENT_SCHEMA_VERSION);
     assert_eq!(serde_json::to_value(&config.components).unwrap(), before);
+}
+
+#[test]
+fn font_sources_accept_legacy_paths_and_collection_faces() {
+    let sources: Vec<FontSource> = serde_json::from_str(
+        r#"["normal.ttf",{"path":"collection.ttc","face_index":2},{"path":"default.ttc"}]"#,
+    )
+    .unwrap();
+    assert_eq!(sources[0], font_source("normal.ttf"));
+    assert_eq!(
+        sources[1],
+        FontSource::Face {
+            path: PathBuf::from("collection.ttc"),
+            face_index: 2,
+        }
+    );
+    assert_eq!(
+        sources[2],
+        FontSource::Face {
+            path: PathBuf::from("default.ttc"),
+            face_index: 0,
+        }
+    );
+    let serialized = serde_json::to_value(&sources).unwrap();
+    assert_eq!(serialized[0], serde_json::json!("normal.ttf"));
+    assert_eq!(serialized[1]["face_index"], serde_json::json!(2));
+    assert_eq!(serialized[2]["face_index"], serde_json::json!(0));
 }
 
 #[test]
@@ -419,7 +472,7 @@ fn legacy_fixed_slots_migrate_to_ordered_components() {
     let glyph = config.primary_glyph_component().unwrap();
     assert_eq!(glyph.id, "legacy-main");
     assert_eq!(glyph.content, "{glyph}");
-    assert_eq!(glyph.fonts, vec![PathBuf::from("main.ttf")]);
+    assert_eq!(glyph.fonts, vec![font_source("main.ttf")]);
     assert_eq!(glyph.font.size, 321.0);
     let SceneComponent::Text(text) = &config.components[1] else {
         panic!("expected migrated text component");
@@ -588,6 +641,55 @@ fn generic_component_property_events_round_trip() {
             property: AnimatableProperty::Progress,
             ..
         }
+    ));
+}
+
+#[test]
+fn typography_events_round_trip() {
+    let events = vec![
+        Event {
+            frame: 1,
+            event_type: EventType::SetFontFeature {
+                element_id: "main".to_string(),
+                tag: "zero".to_string(),
+                value: 1,
+            },
+        },
+        Event {
+            frame: 2,
+            event_type: EventType::SetFontVariation {
+                element_id: "main".to_string(),
+                axis: "wght".to_string(),
+                value: 650.0,
+            },
+        },
+        Event {
+            frame: 3,
+            event_type: EventType::AnimateFontVariation {
+                element_id: "main".to_string(),
+                axis: "wdth".to_string(),
+                start_value: 75.0,
+                end_value: 125.0,
+                duration: 1.25,
+                curve: AnimationCurve::EaseInOut,
+            },
+        },
+    ];
+    let json = serde_json::to_string(&events).unwrap();
+    let decoded: Vec<Event> = serde_json::from_str(&json).unwrap();
+    assert!(matches!(
+        &decoded[0].event_type,
+        EventType::SetFontFeature { tag, value: 1, .. } if tag == "zero"
+    ));
+    assert!(matches!(
+        &decoded[1].event_type,
+        EventType::SetFontVariation { axis, value, .. }
+            if axis == "wght" && (*value - 650.0).abs() < f32::EPSILON
+    ));
+    assert!(matches!(
+        &decoded[2].event_type,
+        EventType::AnimateFontVariation { axis, curve: AnimationCurve::EaseInOut, .. }
+            if axis == "wdth"
     ));
 }
 

@@ -1,7 +1,7 @@
 use crate::content_template::ContentTemplate;
 use crate::scene::{
-    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, GlyphComponent, GlyphSelector,
-    Position, SceneComponent, TextAlign, TextComponent,
+    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, FontSource, GlyphComponent,
+    GlyphSelector, Position, SceneComponent, TextAlign, TextComponent,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -210,11 +210,11 @@ pub fn resolve_asset_reference(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-pub(crate) fn bundled_font_paths(relative: impl AsRef<Path>) -> Vec<PathBuf> {
+pub(crate) fn bundled_font_paths(relative: impl AsRef<Path>) -> Vec<FontSource> {
     let relative = relative.as_ref();
     asset_path(relative)
         .is_file()
-        .then(|| bundled_asset_reference(relative))
+        .then(|| FontSource::from(bundled_asset_reference(relative)))
         .into_iter()
         .collect()
 }
@@ -223,7 +223,8 @@ fn resolve_component_config_paths(components: &mut [SceneComponent], base_dir: &
     for component in components {
         if let Some(fonts) = component.fonts_mut() {
             for font in fonts {
-                *font = resolve_config_reference(font, base_dir, true, false);
+                let path = font.path_mut();
+                *path = resolve_config_reference(path, base_dir, true, false);
             }
         }
         if let Some(source) = component.image_source_mut() {
@@ -239,7 +240,8 @@ fn portable_component_config_paths(components: &mut [SceneComponent], base_dir: 
     for component in components {
         if let Some(fonts) = component.fonts_mut() {
             for font in fonts {
-                *font = portable_config_reference(font, base_dir, true, false);
+                let path = font.path_mut();
+                *path = portable_config_reference(path, base_dir, true, false);
             }
         }
         if let Some(source) = component.image_source_mut() {
@@ -368,6 +370,24 @@ pub enum EventType {
         property: AnimatableProperty,
         start_value: ComponentPropertyValue,
         end_value: ComponentPropertyValue,
+        duration: f64,
+        curve: AnimationCurve,
+    },
+    SetFontFeature {
+        element_id: String,
+        tag: String,
+        value: u32,
+    },
+    SetFontVariation {
+        element_id: String,
+        axis: String,
+        value: f32,
+    },
+    AnimateFontVariation {
+        element_id: String,
+        axis: String,
+        start_value: f32,
+        end_value: f32,
         duration: f64,
         curve: AnimationCurve,
     },
@@ -658,7 +678,6 @@ fn default_deserialized_schema_version() -> u32 {
 pub struct RenderConfig {
     #[serde(default = "default_deserialized_schema_version")]
     pub schema_version: u32,
-
     #[serde(default = "default_output_path")]
     pub output_path: PathBuf,
     pub resolution: (u32, u32),
@@ -947,8 +966,9 @@ fn find_text_component_mut(components: &mut [SceneComponent]) -> Option<&mut Tex
 fn normalize_component_assets(components: &mut [SceneComponent]) {
     for component in components {
         if let Some(fonts) = component.fonts_mut() {
-            for font_path in fonts {
-                *font_path = portable_asset_reference(font_path);
+            for font in fonts {
+                let path = font.path_mut();
+                *path = portable_asset_reference(path);
             }
         }
         if let Some(source) = component.image_source_mut() {
@@ -985,7 +1005,7 @@ impl RenderConfig {
                 glyph.enabled = legacy.enabled;
                 glyph.position = legacy.position;
                 glyph.color = legacy.color;
-                glyph.fonts = legacy.fonts;
+                glyph.fonts = legacy.fonts.into_iter().map(FontSource::from).collect();
             }
             if let Some(font) = self.legacy_main_font.take() {
                 glyph.font = font;
@@ -998,7 +1018,7 @@ impl RenderConfig {
                 text.content = legacy.content;
                 text.position = legacy.position;
                 text.color = legacy.color;
-                text.fonts = legacy.fonts;
+                text.fonts = legacy.fonts.into_iter().map(FontSource::from).collect();
                 text.align = legacy.align;
                 text.wrap = legacy.wrap;
                 text.max_width = legacy.max_width;

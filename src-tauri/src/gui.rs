@@ -1,6 +1,7 @@
 use crate::extractor;
 use crate::json_config::RenderConfig;
 use crate::renderer;
+use crate::scene::FontSource;
 use crate::unicode_data;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -96,11 +97,10 @@ pub async fn render_frame_preview(
 
 #[tauri::command]
 pub async fn extract_characters(
-    font_files: Vec<String>,
+    font_files: Vec<FontSource>,
     output_path: String,
     video_output: Option<String>,
 ) -> Result<RenderConfig, String> {
-    let font_paths: Vec<PathBuf> = font_files.iter().map(PathBuf::from).collect();
     let requested_output = PathBuf::from(&output_path);
     let video = video_output.map(PathBuf::from);
 
@@ -119,7 +119,7 @@ pub async fn extract_characters(
             cwd.join(requested_output)
         };
 
-        let config = extractor::extract_to_config(&font_paths, &output, video.as_deref())
+        let config = extractor::extract_to_config(&font_files, &output, video.as_deref())
             .map_err(|e| format!("Failed to extract characters: {e}"))?;
 
         Ok(config)
@@ -137,10 +137,13 @@ pub fn get_unicode_description(code_point: u32) -> String {
 }
 
 #[tauri::command]
-pub fn list_font_characters(font_path: String) -> Result<Vec<u32>, String> {
+pub fn list_font_characters(
+    font_path: String,
+    face_index: Option<u32>,
+) -> Result<Vec<u32>, String> {
     let configured_path = PathBuf::from(font_path);
     let path = crate::json_config::resolve_asset_reference(&configured_path);
-    extractor::collect_font_codepoints(&path)
+    extractor::collect_font_codepoints_with_index(&path, face_index.unwrap_or(0))
         .map(|codepoints| codepoints.into_iter().collect())
         .map_err(|error| error.to_string())
 }

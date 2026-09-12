@@ -103,7 +103,7 @@ fn ibm_plex_zero_feature_shapes_to_alternate_glyph() {
     config.font_variation_settings.insert("wght".into(), 750.0);
     let font_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/fonts/IBMPlexSans-Bold.ttf");
-    let loader = Arc::new(FontLoader::from_path_with_config(&font_path, &config).unwrap());
+    let loader = Arc::new(FontLoader::from_path_with_face_index(&font_path, 0, &config).unwrap());
     let expected = u32::from(
         loader
             .glyph_id_for_selector(&GlyphSelector::Name("zero.alt02".to_string()))

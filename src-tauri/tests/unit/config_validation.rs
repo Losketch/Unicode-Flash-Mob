@@ -1,6 +1,7 @@
 use super::*;
 use crate::content_template::ContentTemplate;
-use crate::json_config::{CharEntry, FfmpegConfig, RenderConfig};
+use crate::json_config::{CharEntry, Event, EventType, FfmpegConfig, RenderConfig};
+use crate::scene::{ProgressBarComponent, SceneComponent};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn unique_temp_path(name: &str) -> std::path::PathBuf {
@@ -122,4 +123,39 @@ fn preview_validation_rejects_missing_external_template_executable() {
     assert!(message.contains("External content template"));
     assert!(message.contains("executable not found"));
     assert!(message.contains(missing.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn font_events_require_typography_components_and_valid_tags() {
+    let config = RenderConfig {
+        components: vec![SceneComponent::ProgressBar(ProgressBarComponent {
+            id: "progress".to_string(),
+            ..ProgressBarComponent::default()
+        })],
+        events: vec![Event {
+            frame: 0,
+            event_type: EventType::SetFontVariation {
+                element_id: "progress".to_string(),
+                axis: "wght".to_string(),
+                value: 600.0,
+            },
+        }],
+        ..RenderConfig::default()
+    };
+    let error = validate_render_config(&config, false).unwrap_err();
+    assert!(format!("{error:#}").contains("has no typography settings"));
+
+    let config = RenderConfig {
+        events: vec![Event {
+            frame: 0,
+            event_type: EventType::SetFontFeature {
+                element_id: "main".to_string(),
+                tag: "long-tag".to_string(),
+                value: 1,
+            },
+        }],
+        ..RenderConfig::default()
+    };
+    let error = validate_render_config(&config, false).unwrap_err();
+    assert!(format!("{error:#}").contains("exactly 4 printable ASCII"));
 }

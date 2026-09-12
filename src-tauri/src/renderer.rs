@@ -7,8 +7,8 @@ use crate::json_config::{
 };
 use crate::primitive_renderer;
 use crate::scene::{
-    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, GlyphSelector, Position,
-    Scale2D, SceneComponent,
+    AnimatableProperty, Color, ComponentPropertyValue, FontConfig, FontSource, GlyphSelector,
+    Position, Scale2D, SceneComponent,
 };
 use crate::scene_transform::{composite_affine, transform_matrix, SceneRenderContext};
 use crate::typography_renderer::{
@@ -63,11 +63,12 @@ fn load_preview_image(path: &Path, enabled: bool) -> Result<Option<Arc<RgbaImage
     Ok(Some(image))
 }
 
-fn load_preview_font(path: &Path, config: &FontConfig) -> Result<Arc<FontLoader>> {
-    let resolved_path = crate::json_config::resolve_asset_reference(path);
+fn load_preview_font(source: &FontSource, config: &FontConfig) -> Result<Arc<FontLoader>> {
+    let resolved_path = crate::json_config::resolve_asset_reference(source.path());
     let key = format!(
-        "{}|{}",
+        "{}|{}|{}",
         resolved_path.to_string_lossy(),
+        source.face_index(),
         serde_json::to_string(config).context("Failed to serialize font settings")?
     );
     if let Some(font) = PREVIEW_FONT_CACHE
@@ -80,8 +81,14 @@ fn load_preview_font(path: &Path, config: &FontConfig) -> Result<Arc<FontLoader>
     }
 
     let font = Arc::new(
-        FontLoader::from_path_with_config(&resolved_path, config)
-            .with_context(|| format!("Failed to load preview font: {}", resolved_path.display()))?,
+        FontLoader::from_path_with_face_index(&resolved_path, source.face_index(), config)
+            .with_context(|| {
+                format!(
+                    "Failed to load preview font face {}: {}",
+                    source.face_index(),
+                    resolved_path.display()
+                )
+            })?,
     );
     let mut cache = PREVIEW_FONT_CACHE
         .lock()
@@ -94,16 +101,16 @@ fn load_preview_font(path: &Path, config: &FontConfig) -> Result<Arc<FontLoader>
 }
 
 fn load_preview_fonts(
-    paths: &[PathBuf],
+    sources: &[FontSource],
     config: &FontConfig,
     enabled: bool,
 ) -> Result<Vec<Arc<FontLoader>>> {
     if !enabled {
         return Ok(Vec::new());
     }
-    paths
+    sources
         .iter()
-        .map(|path| load_preview_font(path, config))
+        .map(|source| load_preview_font(source, config))
         .collect()
 }
 
@@ -130,6 +137,8 @@ fn load_preview_unicode_manager() -> Arc<UnicodeDataManager> {
 struct RenderState {
     current_bg_color: Color,
     component_properties: HashMap<String, HashMap<AnimatableProperty, ComponentPropertyValue>>,
+    font_features: HashMap<String, BTreeMap<String, u32>>,
+    font_variations: HashMap<String, BTreeMap<String, f32>>,
     animating_events: Vec<ActiveAnimation>,
     pause_frames_remaining: u64,
 }
@@ -160,6 +169,7 @@ struct ComponentFrameState {
     rotation: Option<f64>,
     opacity: Option<f64>,
     progress: Option<f64>,
+    font_config: Option<FontConfig>,
 }
 
 #[derive(Clone)]
@@ -183,6 +193,12 @@ enum AnimationType {
         property: AnimatableProperty,
         start_value: ComponentPropertyValue,
         end_value: ComponentPropertyValue,
+    },
+    FontVariation {
+        element_id: String,
+        axis: String,
+        start_value: f32,
+        end_value: f32,
     },
     BackgroundColorTransition {
         start_color: Color,
@@ -260,6 +276,43 @@ fn component_color_property(state: &RenderState, element_id: &str) -> Option<Col
     }
 }
 
+fn set_font_feature(state: &mut RenderState, element_id: &str, tag: &str, value: u32) {
+    state
+        .font_features
+        .entry(element_id.to_string())
+        .or_default()
+        .insert(tag.to_string(), value);
+}
+
+fn set_font_variation(state: &mut RenderState, element_id: &str, axis: &str, value: f32) {
+    state
+        .font_variations
+        .entry(element_id.to_string())
+        .or_default()
+        .insert(axis.to_string(), value);
+}
+
+fn effective_font_config(
+    state: &RenderState,
+    element_id: &str,
+    base: &FontConfig,
+) -> Option<FontConfig> {
+    let features = state.font_features.get(element_id);
+    let variations = state.font_variations.get(element_id);
+    if features.is_none() && variations.is_none() {
+        return None;
+    }
+
+    let mut config = base.clone();
+    if let Some(features) = features {
+        config.font_feature_settings.extend(features.clone());
+    }
+    if let Some(variations) = variations {
+        config.font_variation_settings.extend(variations.clone());
+    }
+    Some(config)
+}
+
 fn interpolate_property_value(
     start: &ComponentPropertyValue,
     end: &ComponentPropertyValue,
@@ -333,6 +386,14 @@ fn update_animations(state: &mut RenderState, frame: u64) {
                 } => {
                     set_component_property(state, element_id, *property, end_value.clone());
                 }
+                AnimationType::FontVariation {
+                    element_id,
+                    axis,
+                    end_value,
+                    ..
+                } => {
+                    set_font_variation(state, element_id, axis, *end_value);
+                }
                 AnimationType::BackgroundColorTransition { end_color, .. } => {
                     state.current_bg_color = end_color.clone();
                 }
@@ -352,6 +413,15 @@ fn update_animations(state: &mut RenderState, frame: u64) {
             } => {
                 let value = interpolate_property_value(start_value, end_value, t);
                 set_component_property(state, element_id, *property, value);
+            }
+            AnimationType::FontVariation {
+                element_id,
+                axis,
+                start_value,
+                end_value,
+            } => {
+                let value = *start_value * (1.0 - t as f32) + *end_value * t as f32;
+                set_font_variation(state, element_id, axis, value);
             }
             AnimationType::BackgroundColorTransition {
                 start_color,
@@ -462,6 +532,41 @@ fn process_events(
                         property: *property,
                         start_value: start_value.clone(),
                         end_value: end_value.clone(),
+                    },
+                );
+            }
+            EventType::SetFontFeature {
+                element_id,
+                tag,
+                value,
+            } => {
+                set_font_feature(state, element_id, tag, *value);
+            }
+            EventType::SetFontVariation {
+                element_id,
+                axis,
+                value,
+            } => {
+                set_font_variation(state, element_id, axis, *value);
+            }
+            EventType::AnimateFontVariation {
+                element_id,
+                axis,
+                start_value,
+                end_value,
+                duration,
+                curve,
+            } => {
+                push_animation(
+                    state,
+                    frame,
+                    duration_to_frames(*duration, config.fps),
+                    curve.clone(),
+                    AnimationType::FontVariation {
+                        element_id: element_id.clone(),
+                        axis: axis.clone(),
+                        start_value: *start_value,
+                        end_value: *end_value,
                     },
                 );
             }
@@ -966,7 +1071,7 @@ fn prepare_render(
 }
 
 fn load_configured_fonts(
-    paths: &[PathBuf],
+    sources: &[FontSource],
     font_config: &FontConfig,
     role: &str,
     enabled: bool,
@@ -974,13 +1079,19 @@ fn load_configured_fonts(
     if !enabled {
         return Ok(Vec::new());
     }
-    let fonts = paths
+    let fonts = sources
         .iter()
-        .map(|font_path| {
-            let resolved_path = crate::json_config::resolve_asset_reference(font_path);
-            FontLoader::from_path_with_config(&resolved_path, font_config)
+        .map(|source| {
+            let resolved_path = crate::json_config::resolve_asset_reference(source.path());
+            FontLoader::from_path_with_face_index(&resolved_path, source.face_index(), font_config)
                 .map(Arc::new)
-                .with_context(|| format!("Failed to load {role} font: {}", resolved_path.display()))
+                .with_context(|| {
+                    format!(
+                        "Failed to load {role} font face {}: {}",
+                        source.face_index(),
+                        resolved_path.display()
+                    )
+                })
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -1808,6 +1919,10 @@ fn resolve_component_frame_states_recursive(
                 .unwrap_or(base_position.y),
         };
 
+        let font_config = component
+            .font()
+            .and_then(|base| effective_font_config(state, id, base));
+
         let (scale, rotation, opacity, progress) = match component {
             SceneComponent::Group(group) => (
                 Some(Scale2D {
@@ -1856,6 +1971,7 @@ fn resolve_component_frame_states_recursive(
                 rotation,
                 opacity,
                 progress,
+                font_config,
             },
         );
         if let SceneComponent::Group(group) = component {
@@ -1982,6 +2098,13 @@ fn frame_state_color(state: &ComponentFrameState) -> Result<&Color> {
         .color
         .as_ref()
         .context("Typography component is missing its frame color")
+}
+
+fn frame_state_font_config<'a>(
+    state: &'a ComponentFrameState,
+    fallback: &'a FontConfig,
+) -> &'a FontConfig {
+    state.font_config.as_ref().unwrap_or(fallback)
 }
 
 struct CombiningOverlayRequest<'a, 'ctx> {
@@ -2219,10 +2342,11 @@ fn render_mixed_glyph_segments(
     typography: &mut TypographyRenderer,
     image: &mut RgbaImage,
 ) -> Result<()> {
+    let font_config = frame_state_font_config(state, &component.font);
     let default_font_size = fonts
         .first()
         .map(|font| font.render_size())
-        .unwrap_or(component.font.size);
+        .unwrap_or(font_config.size);
     let center = (
         (state.position.x * ctx.width as f64) as f32 + ctx.config.text_x_offset as f32,
         (state.position.y * ctx.height as f64) as f32 + ctx.config.text_y_offset as f32,
@@ -2239,7 +2363,7 @@ fn render_mixed_glyph_segments(
                     .unwrap_or(default_font_size);
                 let request = CenteredUnicodeRequest {
                     component_id: &component.id,
-                    config: &component.font,
+                    config: font_config,
                     font_size,
                     text: &text,
                     font_index,
@@ -2257,7 +2381,7 @@ fn render_mixed_glyph_segments(
                 let mut exact = prepare_explicit_glyphs(
                     std::slice::from_ref(&resolved),
                     fonts,
-                    &component.font,
+                    font_config,
                     typography,
                 )?;
                 if let Some(glyph) = exact.pop() {
@@ -2292,7 +2416,7 @@ fn render_mixed_glyph_segments(
                 render_resolved_glyphs(
                     PreparedGlyphRenderRequest {
                         glyphs: std::slice::from_ref(glyph),
-                        font_config: &component.font,
+                        font_config,
                         color: frame_state_color(state)?,
                         background_color: ctx.background_color,
                         origin: (origin_x, origin_y),
@@ -2315,6 +2439,7 @@ fn render_glyph_component(
     typography: &mut TypographyRenderer,
     image: &mut RgbaImage,
 ) -> Result<()> {
+    let font_config = frame_state_font_config(state, &component.font);
     let expression = resolve_component_content(ctx, &component.content)?;
     let parsed_specs = CharEntry::glyph_specs_from(&expression);
     let standalone_combining_overlay = ctx.config.overlay_enabled
@@ -2335,11 +2460,11 @@ fn render_glyph_component(
             let font_size = fonts
                 .first()
                 .map(|font| font.render_size())
-                .unwrap_or(component.font.size);
+                .unwrap_or(font_config.size);
             return typography.render_centered_unicode_sequence(
                 CenteredUnicodeRequest {
                     component_id: &component.id,
-                    config: &component.font,
+                    config: font_config,
                     font_size,
                     text: &text,
                     font_index: None,
@@ -2372,7 +2497,7 @@ fn render_glyph_component(
         return Ok(());
     }
 
-    let prepared = prepare_explicit_glyphs(&glyphs, fonts, &component.font, typography)?;
+    let prepared = prepare_explicit_glyphs(&glyphs, fonts, font_config, typography)?;
     let primary = prepared
         .first()
         .context("Glyph component is enabled without a loaded font")?;
@@ -2411,7 +2536,7 @@ fn render_glyph_component(
                     ctx,
                     state,
                     font: overlay_font,
-                    font_config: &component.font,
+                    font_config,
                     codepoint,
                     anchor: (
                         anchor_x + ctx.config.text_x_offset,
@@ -2427,7 +2552,7 @@ fn render_glyph_component(
     render_resolved_glyphs(
         PreparedGlyphRenderRequest {
             glyphs: &prepared,
-            font_config: &component.font,
+            font_config,
             color: frame_state_color(state)?,
             background_color: ctx.background_color,
             origin: (origin_x, origin_y),
@@ -2445,8 +2570,10 @@ fn render_text_component(
     image: &mut RgbaImage,
 ) -> Result<()> {
     let text = resolve_component_content(ctx, &component.content)?;
+    let mut resolved = component.clone();
+    resolved.font = frame_state_font_config(state, &component.font).clone();
     typography.render_text(
-        component,
+        &resolved,
         &text,
         frame_state_color(state)?.clone(),
         TextPlacement {

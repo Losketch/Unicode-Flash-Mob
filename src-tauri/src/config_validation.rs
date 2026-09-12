@@ -1,5 +1,5 @@
 use crate::content_template::ContentTemplate;
-use crate::font_loader::validate_settings;
+use crate::font_loader::{validate_opentype_tag, validate_settings};
 use crate::json_config::{EventType, RenderConfig, CURRENT_SCHEMA_VERSION};
 use crate::scene::{AnimatableProperty, ComponentPropertyValue, Position, SceneComponent, Size};
 use anyhow::{Context, Result};
@@ -187,6 +187,21 @@ fn validate_component_tree(
     Ok(())
 }
 
+fn validate_typography_event_target<'a>(
+    components: &'a [SceneComponent],
+    element_id: &str,
+    index: usize,
+) -> Result<&'a SceneComponent> {
+    let component = find_component(components, element_id)
+        .with_context(|| format!("event {index} targets unknown component {element_id}"))?;
+    if component.font().is_none() {
+        anyhow::bail!(
+            "event {index} targets component {element_id}, which has no typography settings"
+        );
+    }
+    Ok(component)
+}
+
 /// Validate a configuration before preview or full video rendering.
 ///
 /// When `require_frames` is false, frame/output/FFmpeg-only requirements are
@@ -345,6 +360,49 @@ pub(crate) fn validate_render_config(config: &RenderConfig, require_frames: bool
                     end_value,
                     &format!("event {index} end value"),
                 )?;
+                if !duration.is_finite() || *duration < 0.0 {
+                    anyhow::bail!("event {index} duration must be finite and non-negative");
+                }
+            }
+            EventType::SetFontFeature {
+                element_id,
+                tag,
+                value,
+            } => {
+                validate_typography_event_target(&config.components, element_id, index)?;
+                validate_opentype_tag(tag, "OpenType feature", "liga")?;
+                if u16::try_from(*value).is_err() {
+                    anyhow::bail!(
+                        "event {index} OpenType feature {tag:?} value {value} exceeds the supported u16 range"
+                    );
+                }
+            }
+            EventType::SetFontVariation {
+                element_id,
+                axis,
+                value,
+            } => {
+                validate_typography_event_target(&config.components, element_id, index)?;
+                validate_opentype_tag(axis, "variable-font axis", "wght")?;
+                if !value.is_finite() {
+                    anyhow::bail!("event {index} variable-font axis {axis:?} value must be finite");
+                }
+            }
+            EventType::AnimateFontVariation {
+                element_id,
+                axis,
+                start_value,
+                end_value,
+                duration,
+                ..
+            } => {
+                validate_typography_event_target(&config.components, element_id, index)?;
+                validate_opentype_tag(axis, "variable-font axis", "wght")?;
+                if !start_value.is_finite() || !end_value.is_finite() {
+                    anyhow::bail!(
+                        "event {index} variable-font axis {axis:?} animation values must be finite"
+                    );
+                }
                 if !duration.is_finite() || *duration < 0.0 {
                     anyhow::bail!("event {index} duration must be finite and non-negative");
                 }

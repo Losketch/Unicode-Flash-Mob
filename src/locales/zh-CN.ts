@@ -270,6 +270,8 @@ export const zhCN: TranslationResource = {
     addFont: "添加字体",
     addFonts: "添加字体",
     fontFiles: "字体文件",
+    fontFaceIndex: "内部字体索引",
+    fontFaceIndexHint: "TTC/OTC 字体集合中的零起始内部字体索引。Face 0 为默认值；普通 TTF/OTF 文件仅支持 0。",
     addMultipleFonts: "添加多个字体",
     selectedFonts: "已选择 {{count}} 个字体文件",
     outputConfigPath: "输出配置路径",

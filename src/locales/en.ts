@@ -268,6 +268,8 @@ export const en = {
     addFont: "Add Font",
     addFonts: "Add Fonts",
     fontFiles: "Font Files",
+    fontFaceIndex: "Face index",
+    fontFaceIndexHint: "Zero-based face index for TTC/OTC font collections. Face 0 is the default; ordinary TTF/OTF files only support 0.",
     addMultipleFonts: "Add Multiple Fonts",
     selectedFonts: "{{count}} font files selected",
     outputConfigPath: "Output Config Path",

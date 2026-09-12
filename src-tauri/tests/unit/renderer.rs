@@ -872,6 +872,67 @@ fn generic_progress_property_event_changes_scheduled_frame_fill() {
 }
 
 #[test]
+fn font_feature_and_variation_events_override_frame_font_config() {
+    let config = RenderConfig {
+        components: vec![SceneComponent::Glyph(GlyphComponent::default())],
+        events: vec![
+            Event {
+                frame: 0,
+                event_type: EventType::SetFontFeature {
+                    element_id: "main".to_string(),
+                    tag: "zero".to_string(),
+                    value: 1,
+                },
+            },
+            Event {
+                frame: 0,
+                event_type: EventType::SetFontVariation {
+                    element_id: "main".to_string(),
+                    axis: "wght".to_string(),
+                    value: 650.0,
+                },
+            },
+        ],
+        ..RenderConfig::default()
+    };
+    let mut state = initial_render_state(&config);
+    let mut color_index = 0;
+    process_events(&config, 0, &mut state, &mut color_index, false);
+    let states = resolve_component_frame_states(&config, &one_character(), &state);
+    let font = states["main"].font_config.as_ref().unwrap();
+    assert_eq!(font.font_feature_settings.get("zero"), Some(&1));
+    assert_eq!(font.font_variation_settings.get("wght"), Some(&650.0));
+}
+
+#[test]
+fn variable_font_axis_animation_uses_existing_easing_curve() {
+    let config = RenderConfig {
+        fps: 10.0,
+        components: vec![SceneComponent::Glyph(GlyphComponent::default())],
+        events: vec![Event {
+            frame: 0,
+            event_type: EventType::AnimateFontVariation {
+                element_id: "main".to_string(),
+                axis: "wght".to_string(),
+                start_value: 300.0,
+                end_value: 900.0,
+                duration: 1.0,
+                curve: AnimationCurve::EaseInOut,
+            },
+        }],
+        ..RenderConfig::default()
+    };
+    let mut state = initial_render_state(&config);
+    let mut color_index = 0;
+    process_events(&config, 0, &mut state, &mut color_index, false);
+    update_animations(&mut state, 5);
+    let states = resolve_component_frame_states(&config, &one_character(), &state);
+    let font = states["main"].font_config.as_ref().unwrap();
+    let weight = font.font_variation_settings["wght"];
+    assert!((weight - 600.0).abs() < f32::EPSILON);
+}
+
+#[test]
 fn generic_group_rotation_animation_is_valid() {
     let config = RenderConfig {
         components: vec![SceneComponent::Group(GroupComponent {

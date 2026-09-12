@@ -53,6 +53,13 @@ export interface FontConfig {
   font_optical_sizing: boolean;
 }
 
+export type FontSource =
+  | string
+  | {
+      path: string;
+      face_index?: number;
+    };
+
 export interface GlyphComponent {
   type: "glyph";
   id: string;
@@ -60,7 +67,7 @@ export interface GlyphComponent {
   content: string;
   position: Position;
   color: Color;
-  fonts: string[];
+  fonts: FontSource[];
   font: FontConfig;
   overlay_combining_mark: boolean;
 }
@@ -72,7 +79,7 @@ export interface TextComponent {
   content: string;
   position: Position;
   color: Color;
-  fonts: string[];
+  fonts: FontSource[];
   font: FontConfig;
   align: TextAlign;
   wrap: boolean;
@@ -172,6 +179,30 @@ export type EventType =
         property: AnimatableProperty;
         start_value: ComponentPropertyValue;
         end_value: ComponentPropertyValue;
+        duration: number;
+        curve: AnimationCurve;
+      };
+    }
+  | {
+      set_font_feature: {
+        element_id: string;
+        tag: string;
+        value: number;
+      };
+    }
+  | {
+      set_font_variation: {
+        element_id: string;
+        axis: string;
+        value: number;
+      };
+    }
+  | {
+      animate_font_variation: {
+        element_id: string;
+        axis: string;
+        start_value: number;
+        end_value: number;
         duration: number;
         curve: AnimationCurve;
       };

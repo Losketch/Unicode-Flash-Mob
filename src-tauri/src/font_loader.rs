@@ -14,6 +14,8 @@ use std::sync::Arc;
 pub struct FontLoader {
     font: FontArc,
     source_data: Arc<[u8]>,
+    // Index within `source_data`. Collection faces are materialized as standalone
+    // sfnt data, so their backend-facing index is always zero.
     face_index: u32,
     px_scale: PxScale,
     glyph_names: HashMap<String, GlyphId>,
@@ -21,17 +23,27 @@ pub struct FontLoader {
 }
 
 impl FontLoader {
-    pub fn from_path_with_config(path: &Path, config: &FontConfig) -> Result<Self> {
+    pub fn from_path_with_face_index(
+        path: &Path,
+        face_index: u32,
+        config: &FontConfig,
+    ) -> Result<Self> {
         let data = std::fs::read(path)
             .with_context(|| format!("Failed to read font file: {}", path.display()))?;
-        Self::from_bytes_with_config(&data, config)
+        Self::from_bytes_with_config(&data, face_index, config).with_context(|| {
+            format!(
+                "Failed to load font face {face_index} from {}",
+                path.display()
+            )
+        })
     }
 
-    fn from_bytes_with_config(data: &[u8], config: &FontConfig) -> Result<Self> {
+    fn from_bytes_with_config(data: &[u8], face_index: u32, config: &FontConfig) -> Result<Self> {
         validate_settings(config)?;
+        let selected_data = select_font_face_data(data, face_index)?;
         let font_size = config.size;
-        let font = FontArc::try_from_vec(data.to_vec())
-            .map_err(|e| anyhow::anyhow!("Failed to parse font: {}", e))?;
+        let font = FontArc::try_from_vec(selected_data.clone())
+            .map_err(|_| anyhow::anyhow!("Failed to initialize font backend from selected face"))?;
 
         let units_per_em = font.units_per_em().unwrap_or(1000.0);
         let default_scale = PxScale::from(units_per_em);
@@ -47,7 +59,7 @@ impl FontLoader {
         };
 
         let px_scale = PxScale::from(corrected_scale);
-        let face = ttf_parser::Face::parse(data, 0)
+        let face = ttf_parser::Face::parse(&selected_data, 0)
             .map_err(|_| anyhow::anyhow!("Failed to parse font OpenType tables"))?;
         let mut glyph_names = HashMap::new();
         for index in 0..face.number_of_glyphs() {
@@ -56,13 +68,14 @@ impl FontLoader {
                 glyph_names.insert(name.to_string(), GlyphId(index));
             }
         }
+        let glyph_count = face.number_of_glyphs();
         Ok(Self {
             font,
-            source_data: Arc::from(data),
+            source_data: Arc::from(selected_data),
             face_index: 0,
             px_scale,
             glyph_names,
-            glyph_count: face.number_of_glyphs(),
+            glyph_count,
         })
     }
 
@@ -156,6 +169,176 @@ impl FontLoader {
     }
 }
 
+fn select_font_face_data(data: &[u8], face_index: u32) -> Result<Vec<u8>> {
+    match ttf_parser::fonts_in_collection(data) {
+        Some(count) => {
+            if face_index >= count {
+                anyhow::bail!(
+                    "Font collection face index {face_index} is out of range (collection has {count} faces)"
+                );
+            }
+            extract_collection_face(data, face_index)
+        }
+        None if face_index == 0 => Ok(data.to_vec()),
+        None => anyhow::bail!(
+            "Font face index {face_index} was requested, but the file is not a font collection"
+        ),
+    }
+}
+
+fn read_be_u16(data: &[u8], offset: usize) -> Result<u16> {
+    let end = offset
+        .checked_add(2)
+        .context("Font collection offset overflow")?;
+    let bytes: [u8; 2] = data
+        .get(offset..end)
+        .context("Font collection is truncated")?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Font collection is truncated"))?;
+    Ok(u16::from_be_bytes(bytes))
+}
+
+fn read_be_u32(data: &[u8], offset: usize) -> Result<u32> {
+    let end = offset
+        .checked_add(4)
+        .context("Font collection offset overflow")?;
+    let bytes: [u8; 4] = data
+        .get(offset..end)
+        .context("Font collection is truncated")?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Font collection is truncated"))?;
+    Ok(u32::from_be_bytes(bytes))
+}
+
+/// Materialize one TTC/OTC face as a standalone sfnt. A configured font source
+/// represents exactly one face, so every typography backend receives identical
+/// single-face bytes instead of independently choosing from the collection.
+fn extract_collection_face(data: &[u8], face_index: u32) -> Result<Vec<u8>> {
+    let face_index_offset = (face_index as usize)
+        .checked_mul(4)
+        .context("Font collection face index overflow")?;
+    let offset_position = 12usize
+        .checked_add(face_index_offset)
+        .context("Font collection face index overflow")?;
+    let face_offset = read_be_u32(data, offset_position)? as usize;
+    let num_tables_offset = face_offset
+        .checked_add(4)
+        .context("Font collection face offset overflow")?;
+    let num_tables = read_be_u16(data, num_tables_offset)? as usize;
+    let directory_len = 12usize
+        .checked_add(
+            num_tables
+                .checked_mul(16)
+                .context("Font table directory overflow")?,
+        )
+        .context("Font table directory overflow")?;
+    let directory_end = face_offset
+        .checked_add(directory_len)
+        .context("Font table directory overflow")?;
+    data.get(face_offset..directory_end)
+        .context("Font collection face directory is truncated")?;
+
+    #[derive(Clone, Copy)]
+    struct TableRecord {
+        tag: [u8; 4],
+        checksum: u32,
+        source_offset: usize,
+        length: usize,
+    }
+
+    let mut records = Vec::with_capacity(num_tables);
+    for index in 0..num_tables {
+        let record_offset = face_offset
+            .checked_add(12)
+            .and_then(|offset| offset.checked_add(index * 16))
+            .context("Font table record offset overflow")?;
+        let tag: [u8; 4] = data[record_offset..record_offset + 4]
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Invalid font table tag"))?;
+        let checksum = read_be_u32(data, record_offset + 4)?;
+        let source_offset = read_be_u32(data, record_offset + 8)? as usize;
+        let length = read_be_u32(data, record_offset + 12)? as usize;
+        let end = source_offset
+            .checked_add(length)
+            .context("Font table length overflow")?;
+        data.get(source_offset..end).with_context(|| {
+            format!(
+                "Font table {:?} is truncated",
+                String::from_utf8_lossy(&tag)
+            )
+        })?;
+        records.push(TableRecord {
+            tag,
+            checksum,
+            source_offset,
+            length,
+        });
+    }
+
+    let mut target_offset = directory_len;
+    let mut output_len = directory_len;
+    for record in &records {
+        target_offset = (target_offset + 3) & !3;
+        output_len = target_offset
+            .checked_add(record.length)
+            .context("Standalone font size overflow")?;
+        target_offset = output_len;
+    }
+    output_len = (output_len + 3) & !3;
+
+    let mut output = vec![0u8; output_len];
+    output[..12].copy_from_slice(&data[face_offset..face_offset + 12]);
+    target_offset = directory_len;
+    let mut head_offset = None;
+    for (index, record) in records.iter().enumerate() {
+        target_offset = (target_offset + 3) & !3;
+        let directory_offset = 12 + index * 16;
+        output[directory_offset..directory_offset + 4].copy_from_slice(&record.tag);
+        output[directory_offset + 4..directory_offset + 8]
+            .copy_from_slice(&record.checksum.to_be_bytes());
+        let table_offset = u32::try_from(target_offset)
+            .context("Standalone font table offset exceeds the OpenType u32 range")?;
+        let table_length = u32::try_from(record.length)
+            .context("Standalone font table length exceeds the OpenType u32 range")?;
+        output[directory_offset + 8..directory_offset + 12]
+            .copy_from_slice(&table_offset.to_be_bytes());
+        output[directory_offset + 12..directory_offset + 16]
+            .copy_from_slice(&table_length.to_be_bytes());
+        output[target_offset..target_offset + record.length]
+            .copy_from_slice(&data[record.source_offset..record.source_offset + record.length]);
+        if &record.tag == b"head" {
+            head_offset = Some(target_offset);
+        }
+        target_offset += record.length;
+    }
+
+    if let Some(head_offset) = head_offset {
+        let adjustment_offset = head_offset
+            .checked_add(8)
+            .context("head checksum-adjustment offset overflow")?;
+        let adjustment_end = adjustment_offset
+            .checked_add(4)
+            .context("head checksum-adjustment offset overflow")?;
+        output
+            .get_mut(adjustment_offset..adjustment_end)
+            .context("head table is too short for checksumAdjustment")?
+            .fill(0);
+
+        let mut sum = 0u32;
+        for chunk in output.chunks(4) {
+            let mut bytes = [0u8; 4];
+            bytes[..chunk.len()].copy_from_slice(chunk);
+            sum = sum.wrapping_add(u32::from_be_bytes(bytes));
+        }
+        let adjustment = 0xB1B0_AFBAu32.wrapping_sub(sum);
+        output[adjustment_offset..adjustment_end].copy_from_slice(&adjustment.to_be_bytes());
+    }
+
+    ttf_parser::Face::parse(&output, 0)
+        .map_err(|_| anyhow::anyhow!("Failed to materialize selected font collection face"))?;
+    Ok(output)
+}
+
 pub(crate) fn validate_settings(config: &FontConfig) -> Result<()> {
     if !config.size.is_finite() || config.size <= 0.0 {
         anyhow::bail!("Font size must be a positive finite number");
@@ -179,7 +362,7 @@ pub(crate) fn validate_settings(config: &FontConfig) -> Result<()> {
     Ok(())
 }
 
-fn validate_opentype_tag(tag: &str, kind: &str, example: &str) -> Result<()> {
+pub(crate) fn validate_opentype_tag(tag: &str, kind: &str, example: &str) -> Result<()> {
     if tag.len() != 4
         || !tag
             .as_bytes()

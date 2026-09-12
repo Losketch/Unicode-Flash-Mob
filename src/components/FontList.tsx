@@ -9,6 +9,8 @@ import {
   ListItemText,
   Stack,
   SxProps,
+  TextField,
+  Tooltip,
   Theme,
   Typography,
 } from "@mui/material";
@@ -25,10 +27,11 @@ import {
 } from "@hello-pangea/dnd";
 import { open } from "@tauri-apps/plugin-dialog";
 import { moveItem } from "../utils/config";
+import type { FontSource } from "../types/config";
 
 interface FontListProps {
-  fonts: string[];
-  onChange: (fonts: string[]) => void;
+  fonts: FontSource[];
+  onChange: (fonts: FontSource[]) => void;
   label?: string;
   multiple?: boolean;
   disabled?: boolean;
@@ -44,7 +47,20 @@ const FontList: React.FC<FontListProps> = ({
   sx,
 }) => {
   const { t } = useTranslation(["common", "extract"]);
-  const displayName = (path: string) => path.split(/[\\/]/).pop() || path;
+  const fontPath = (font: FontSource) =>
+    typeof font === "string" ? font : font.path;
+  const faceIndex = (font: FontSource) =>
+    typeof font === "string" ? 0 : font.face_index ?? 0;
+  const displayName = (font: FontSource) => {
+    const path = fontPath(font);
+    return path.split(/[\\/]/).pop() || path;
+  };
+  const isCollection = (font: FontSource) =>
+    /\.(?:ttc|otc)$/i.test(fontPath(font)) || typeof font !== "string";
+  const withFaceIndex = (font: FontSource, value: number): FontSource => {
+    const index = Math.max(0, Math.trunc(Number.isFinite(value) ? value : 0));
+    return index === 0 ? fontPath(font) : { path: fontPath(font), face_index: index };
+  };
 
   const handleAdd = async () => {
     try {
@@ -53,7 +69,7 @@ const FontList: React.FC<FontListProps> = ({
         filters: [
           {
             name: t("extract:fontFiles"),
-            extensions: ["ttf", "otf"],
+            extensions: ["ttf", "otf", "ttc", "otc"],
           },
         ],
       });
@@ -76,6 +92,12 @@ const FontList: React.FC<FontListProps> = ({
 
   const handleMoveDown = (index: number) => {
     onChange(moveItem(fonts, index, index + 1));
+  };
+
+  const handleFaceIndexChange = (index: number, value: number) => {
+    const next = [...fonts];
+    next[index] = withFaceIndex(next[index], value);
+    onChange(next);
   };
 
   const handleDragEnd = (result: DropResult) => {
@@ -114,7 +136,11 @@ const FontList: React.FC<FontListProps> = ({
                 sx={{ bgcolor: "action.hover", borderRadius: 2 }}
               >
                 {fonts.map((font, index) => (
-                  <Draggable key={`${font}-${index}`} draggableId={`${font}-${index}`} index={index}>
+                  <Draggable
+                    key={`${fontPath(font)}-${faceIndex(font)}-${index}`}
+                    draggableId={`${fontPath(font)}-${faceIndex(font)}-${index}`}
+                    index={index}
+                  >
                     {(providedItem, snapshot) => (
                       <ListItem
                         ref={providedItem.innerRef}
@@ -135,16 +161,32 @@ const FontList: React.FC<FontListProps> = ({
                         </Box>
                         <ListItemText
                           primary={displayName(font)}
-                          secondary={font}
+                          secondary={fontPath(font)}
                           primaryTypographyProps={{
                             noWrap: true,
                             title: displayName(font),
                           }}
                           secondaryTypographyProps={{
                             noWrap: true,
-                            title: font,
+                            title: fontPath(font),
                           }}
                         />
+                        {isCollection(font) && (
+                          <Tooltip title={t("extract:fontFaceIndexHint")} arrow>
+                            <TextField
+                              label={t("extract:fontFaceIndex")}
+                              type="number"
+                              value={faceIndex(font)}
+                              onChange={(event) =>
+                                handleFaceIndexChange(index, Number(event.target.value))
+                              }
+                              disabled={disabled}
+                              size="small"
+                              inputProps={{ min: 0, step: 1 }}
+                              sx={{ width: 104, mr: 0.5 }}
+                            />
+                          </Tooltip>
+                        )}
                         <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                           <IconButton
                             onClick={() => handleMoveUp(index)}

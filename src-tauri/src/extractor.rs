@@ -1,31 +1,41 @@
 //! Shared font extraction for the CLI and Tauri commands.
 
 use crate::json_config::{CharEntry, RenderConfig};
+use crate::scene::FontSource;
 use crate::unicode_data::{self, UnicodeDataManager};
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-fn resolve_font_paths(font_files: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
+fn resolve_font_sources(font_files: &[FontSource], cwd: &Path) -> Vec<FontSource> {
     font_files
         .iter()
-        .map(|font_path| {
+        .cloned()
+        .map(|mut source| {
+            let font_path = source.path_mut();
             let asset_path = crate::json_config::resolve_asset_reference(font_path);
-            if asset_path.as_path() != font_path.as_path() || font_path.is_absolute() {
+            *font_path = if asset_path.as_path() != font_path.as_path() || font_path.is_absolute() {
                 asset_path
             } else {
-                cwd.join(font_path)
-            }
+                cwd.join(&*font_path)
+            };
+            source
         })
         .collect()
 }
 
-/// Return every mapped Unicode code point in one font, sorted and deduplicated.
-pub fn collect_font_codepoints(font_path: &Path) -> Result<BTreeSet<u32>> {
+pub fn collect_font_codepoints_with_index(
+    font_path: &Path,
+    face_index: u32,
+) -> Result<BTreeSet<u32>> {
     let data = std::fs::read(font_path)
         .with_context(|| format!("Failed to read font: {}", font_path.display()))?;
-    let face = ttf_parser::Face::parse(&data, 0)
-        .with_context(|| format!("Failed to parse font: {}", font_path.display()))?;
+    let face = ttf_parser::Face::parse(&data, face_index).with_context(|| {
+        format!(
+            "Failed to parse font face {face_index}: {}",
+            font_path.display()
+        )
+    })?;
 
     let cmap = face
         .tables()
@@ -50,14 +60,14 @@ pub fn collect_font_codepoints(font_path: &Path) -> Result<BTreeSet<u32>> {
 }
 
 pub fn extract_to_config(
-    font_files: &[PathBuf],
+    font_files: &[FontSource],
     output_path: &Path,
     video_output: Option<&Path>,
 ) -> Result<RenderConfig> {
     let cwd = std::env::current_dir()?;
     let mut config = RenderConfig::default();
 
-    let absolute_fonts = resolve_font_paths(font_files, &cwd);
+    let absolute_fonts = resolve_font_sources(font_files, &cwd);
     if absolute_fonts.is_empty() {
         anyhow::bail!("At least one font file is required");
     }
@@ -85,8 +95,11 @@ pub fn extract_to_config(
     });
 
     let mut seen = BTreeSet::new();
-    for font_path in &absolute_fonts {
-        seen.extend(collect_font_codepoints(font_path)?);
+    for source in &absolute_fonts {
+        seen.extend(collect_font_codepoints_with_index(
+            source.path(),
+            source.face_index(),
+        )?);
     }
 
     // Assign one background color per Unicode block.

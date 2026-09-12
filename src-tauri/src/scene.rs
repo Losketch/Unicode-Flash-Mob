@@ -170,6 +170,46 @@ impl Default for ProgressBarBorder {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum FontSource {
+    Path(PathBuf),
+    Face {
+        path: PathBuf,
+        #[serde(default)]
+        face_index: u32,
+    },
+}
+
+impl FontSource {
+    pub fn path(&self) -> &PathBuf {
+        match self {
+            Self::Path(path) => path,
+            Self::Face { path, .. } => path,
+        }
+    }
+
+    pub fn path_mut(&mut self) -> &mut PathBuf {
+        match self {
+            Self::Path(path) => path,
+            Self::Face { path, .. } => path,
+        }
+    }
+
+    pub fn face_index(&self) -> u32 {
+        match self {
+            Self::Path(_) => 0,
+            Self::Face { face_index, .. } => *face_index,
+        }
+    }
+}
+
+impl From<PathBuf> for FontSource {
+    fn from(path: PathBuf) -> Self {
+        Self::Path(path)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct FontConfig {
@@ -223,7 +263,7 @@ pub struct GlyphComponent {
     pub content: String,
     pub position: Position,
     pub color: Color,
-    pub fonts: Vec<PathBuf>,
+    pub fonts: Vec<FontSource>,
     pub font: FontConfig,
     /// Draw U+25CC behind combining marks when the current entry is a mark.
     #[serde(default = "default_true")]
@@ -262,7 +302,7 @@ pub struct TextComponent {
     pub content: String,
     pub position: Position,
     pub color: Color,
-    pub fonts: Vec<PathBuf>,
+    pub fonts: Vec<FontSource>,
     pub font: FontConfig,
     #[serde(default)]
     pub align: TextAlign,
@@ -467,7 +507,7 @@ impl SceneComponent {
         }
     }
 
-    pub fn fonts(&self) -> Option<&[PathBuf]> {
+    pub fn fonts(&self) -> Option<&[FontSource]> {
         match self {
             Self::Glyph(c) => Some(&c.fonts),
             Self::Text(c) => Some(&c.fonts),
@@ -475,7 +515,7 @@ impl SceneComponent {
         }
     }
 
-    pub fn fonts_mut(&mut self) -> Option<&mut Vec<PathBuf>> {
+    pub fn fonts_mut(&mut self) -> Option<&mut Vec<FontSource>> {
         match self {
             Self::Glyph(c) => Some(&mut c.fonts),
             Self::Text(c) => Some(&mut c.fonts),
